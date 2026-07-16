@@ -50,7 +50,7 @@ export default function Sidebar({
   const menuItems1 = useMemo(() => {
     const items = [
       { id: 'novodash', label: 'Dash Executivo', icon: LayoutDashboard },
-      { id: 'dashlideranca', label: 'Gestão Operacional', icon: LayoutDashboard },
+      { id: 'dashlideranca', label: 'Dash Lideres', icon: LayoutDashboard },
       { id: 'honorarios', label: 'Honorários', icon: Coins },
     ];
     if (!isExecutiveView) {

@@ -1,6 +1,7 @@
 {
-  "name": "Project Initiation Lab",
-  "description": "Interactive project initiation dashboard and setup lab using high-contrast bold typography.",
+  "name": "Sextante",
+  "description": "Sextante is an executive financial controller dashboard for managing contracts, transaction data loads, status parameters, corporate access control, and global configurations.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "engine_version": "Versão do Motor: SEXTANTE_CORE_v1.0.A"
 }

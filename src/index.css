@@ -1,37 +1,46 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Space Grotesk", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-brand-bg: #050505; /* Lowest background dark */
+  --color-brand-surface: #0a0a00; /* App background canvas - #0A0A0A */
+  /* Let's use pure hex as requested */
+  --color-brand-bg: #050505;
+  --color-brand-surface: #0a0a0a;
+  --color-brand-card: #1a1a1a;
+  --color-brand-card-light: #242424;
+  --color-brand-card-bright: #2e2e2e;
+  --color-brand-border: #333333;
+  --color-brand-text: #ffffff;
+  --color-brand-text-muted: #b0b0b0;
+  --color-brand-primary: #d32f2f;
+  --color-brand-accent: #d32f2f;
+  --color-brand-burgundy: #4c0a0a;
+  
+  --font-sans: 'Roboto', sans-serif;
+  --font-mono: 'Roboto', sans-serif;
 }
 
-/* Custom styles for the Bold Typography Theme */
-.massive-text {
+body {
+  background-color: var(--color-brand-surface);
+  color: var(--color-brand-text);
   font-family: var(--font-sans);
-  font-weight: 900;
-  text-transform: uppercase;
-  line-height: 0.8;
-  letter-spacing: -0.05em;
+  overflow-x: hidden;
 }
 
-.vertical-text {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-}
-
-/* Hide scrollbars but allow scrolling if needed */
+/* Custom scrollbars matching the theme */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--color-brand-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 77, 0, 0.3);
-  border-radius: 2px;
+  background: var(--color-brand-border);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 77, 0, 0.6);
+  background: var(--color-brand-card-bright);
 }
+

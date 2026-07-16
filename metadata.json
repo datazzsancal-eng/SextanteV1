@@ -1,0 +1,6 @@
+{
+  "name": "Project Initiation Lab",
+  "description": "Interactive project initiation dashboard and setup lab using high-contrast bold typography.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

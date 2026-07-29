@@ -11,7 +11,8 @@ import {
   ChevronRight,
   ChevronLeft,
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  LogOut
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -20,6 +21,7 @@ interface SidebarProps {
   onTabChange: (tabId: string) => void;
   currentUser: UserProfile;
   onChangeUser: () => void;
+  onLogout?: () => void;
   isExecutiveView: boolean;
 }
 
@@ -28,9 +30,13 @@ export default function Sidebar({
   onTabChange,
   currentUser,
   onChangeUser,
+  onLogout,
   isExecutiveView
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAcessoExpanded, setIsAcessoExpanded] = useState(() => {
+    return currentTab === 'usuarios';
+  });
   const [isOperacaoExpanded, setIsOperacaoExpanded] = useState(() => {
     return currentTab === 'carga' || currentTab === 'cadastros';
   });
@@ -39,6 +45,9 @@ export default function Sidebar({
   });
 
   useEffect(() => {
+    if (currentTab === 'usuarios') {
+      setIsAcessoExpanded(true);
+    }
     if (currentTab === 'carga' || currentTab === 'cadastros') {
       setIsOperacaoExpanded(true);
     }
@@ -75,6 +84,15 @@ export default function Sidebar({
       setIsOperacaoExpanded(true);
     } else {
       setIsOperacaoExpanded(!isOperacaoExpanded);
+    }
+  };
+
+  const handleAcessoHeaderClick = () => {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      setIsAcessoExpanded(true);
+    } else {
+      setIsAcessoExpanded(!isAcessoExpanded);
     }
   };
 
@@ -240,6 +258,62 @@ export default function Sidebar({
                 )}
               </div>
 
+              {/* Collapsible Gestão de Acesso Group */}
+              <div className="flex flex-col space-y-1 pt-1.5 border-t border-brand-border/10">
+                <button
+                  id="nav-acesso-parent"
+                  onClick={handleAcessoHeaderClick}
+                  title={isCollapsed ? "Gestão de Acesso" : undefined}
+                  className={`w-full flex items-center rounded-lg transition-all duration-200 group ${
+                    isCollapsed 
+                      ? 'justify-center p-3' 
+                      : 'gap-3.5 px-4 py-3.5 text-left'
+                  } ${
+                    currentTab === 'usuarios'
+                      ? 'bg-brand-card-bright/40 text-brand-primary'
+                      : 'text-brand-text-muted hover:bg-brand-card hover:text-brand-text'
+                  }`}
+                >
+                  <ShieldCheck 
+                    size={19} 
+                    className={`transition-colors duration-200 shrink-0 ${
+                      currentTab === 'usuarios' ? 'text-brand-primary' : 'text-brand-text-muted/60 group-hover:text-brand-text-muted'
+                    }`} 
+                  />
+                  {!isCollapsed && (
+                    <>
+                      <span className="text-sm font-medium tracking-wide flex-1">
+                        Gestão de Acesso
+                      </span>
+                      {isAcessoExpanded ? (
+                        <ChevronDown size={14} className="text-brand-text-muted group-hover:text-brand-text shrink-0" />
+                      ) : (
+                        <ChevronRight size={14} className="text-brand-text-muted group-hover:text-brand-text shrink-0" />
+                      )}
+                    </>
+                  )}
+                </button>
+
+                {/* Submenus if expanded and not collapsed */}
+                {!isCollapsed && isAcessoExpanded && (
+                  <div className="ml-4 pl-3 border-l border-brand-border/40 flex flex-col space-y-1 mt-1">
+                    {/* Submenu 1: Usuários */}
+                    <button
+                      id="nav-sub-usuarios"
+                      onClick={() => onTabChange('usuarios')}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-md transition-all duration-200 text-left ${
+                        currentTab === 'usuarios'
+                          ? 'bg-brand-card text-brand-primary font-bold border-l-2 border-brand-accent shadow-sm'
+                          : 'text-brand-text-muted/80 hover:bg-brand-card/50 hover:text-brand-text'
+                      }`}
+                    >
+                      <Users size={14} className={currentTab === 'usuarios' ? 'text-brand-primary shrink-0' : 'text-brand-text-muted/60 shrink-0'} />
+                      <span>Usuários</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Collapsible Configurações Group */}
               <div className="flex flex-col space-y-1 pt-1.5 border-t border-brand-border/10">
                 <button
@@ -314,41 +388,58 @@ export default function Sidebar({
         </nav>
       </div>
 
-      {/* User Profile Footer */}
+      {/* User Profile Footer & Logout Button */}
       <div 
         id="profile-footer-container"
-        className="mt-auto pt-6 border-t border-brand-border/40 w-full flex justify-center"
+        className="mt-auto pt-4 border-t border-brand-border/40 w-full flex flex-col gap-2"
       >
-        <button
-          onClick={onChangeUser}
-          className={`w-full flex items-center rounded-lg hover:bg-brand-card transition-all duration-200 cursor-pointer text-left group ${
-            isCollapsed ? 'justify-center p-1' : 'gap-3 p-2'
-          }`}
-          title="Clique para alternar perfil de usuário"
-        >
-          <div className="relative shrink-0">
-            <div className="w-10 h-10 rounded-full bg-brand-accent flex items-center justify-center text-white font-bold text-xs select-none shadow border border-brand-primary/20">
-              {currentUser.avatar}
+        <div className="flex items-center justify-between gap-1">
+          <button
+            onClick={onChangeUser}
+            className={`flex-1 flex items-center rounded-lg hover:bg-brand-card transition-all duration-200 cursor-pointer text-left group ${
+              isCollapsed ? 'justify-center p-1' : 'gap-3 p-2'
+            }`}
+            title="Clique para alternar perfil de usuário"
+          >
+            <div className="relative shrink-0">
+              <div className="w-9 h-9 rounded-full bg-brand-accent flex items-center justify-center text-white font-bold text-xs select-none shadow border border-brand-primary/20">
+                {currentUser?.avatar || (currentUser?.name ? currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'US')}
+              </div>
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-brand-bg" />
             </div>
-            <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-brand-bg" />
-          </div>
-          
-          {!isCollapsed && (
-            <>
+            
+            {!isCollapsed && (
               <div className="min-w-0 flex-1">
-                <h4 className="text-sm font-bold text-brand-text group-hover:text-brand-primary transition-colors truncate">
-                  {currentUser.name}
+                <h4 className="text-xs font-bold text-brand-text group-hover:text-brand-primary transition-colors truncate">
+                  {currentUser?.name || 'Usuário Autenticado'}
                 </h4>
-                <p className="text-[11px] font-semibold text-brand-text-muted/65 uppercase tracking-wider truncate">
-                  {currentUser.role === 'ADMINISTRATOR' ? 'Senior Controller' : currentUser.role === 'MANAGER' ? 'Manager Access' : 'Data Analyst'}
-                </p>
+                <div className="flex items-center gap-1.5 truncate">
+                  <span className="text-[10px] font-bold text-brand-primary uppercase tracking-wider truncate">
+                    {currentUser?.role || 'Acesso Ativo'}
+                  </span>
+                </div>
+                {currentUser?.email && (
+                  <p className="text-[9px] text-brand-text-muted/70 truncate font-mono">
+                    {currentUser.email}
+                  </p>
+                )}
               </div>
-              <div className="text-[10px] bg-brand-card-light py-0.5 px-1.5 rounded text-brand-primary border border-brand-border/50 font-mono scale-90">
-                Alt
-              </div>
-            </>
+            )}
+          </button>
+
+          {/* Dedicated Logout Button */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className={`p-2 rounded-lg text-brand-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer border border-transparent hover:border-red-500/20 shrink-0 ${
+                isCollapsed ? 'w-full flex justify-center' : ''
+              }`}
+              title="Sair da Conta (Logout)"
+            >
+              <LogOut size={16} />
+            </button>
           )}
-        </button>
+        </div>
       </div>
     </div>
   </aside>

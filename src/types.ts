@@ -24,13 +24,18 @@ export interface UploadedFile {
   status: 'SUCESSO' | 'FALHA';
 }
 
+export type UserRole = 'Master' | 'Admin' | 'Gestor' | 'Lider' | 'Colaborador';
+
 export interface UserProfile {
   id: string;
   name: string;
   email: string;
-  role: 'ADMINISTRATOR' | 'MANAGER' | 'ANALYST';
+  role: UserRole;
   status: 'Ativo' | 'Inativo';
   avatar: string;
+  novo_usuario?: boolean;
+  created_at?: string;
+  password?: string;
 }
 
 export interface DefinedAction {

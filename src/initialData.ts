@@ -108,48 +108,7 @@ export const initialUploadedFiles: UploadedFile[] = [
   }
 ];
 
-export const initialUsers: UserProfile[] = [
-  {
-    id: 'u1',
-    name: 'Ricardo Mendonça',
-    email: 'ricardo.m@sextante.com.br',
-    role: 'ADMINISTRATOR',
-    status: 'Ativo',
-    avatar: 'RM'
-  },
-  {
-    id: 'u2',
-    name: 'Alice Silva',
-    email: 'alice.silva@sextante.com.br',
-    role: 'MANAGER',
-    status: 'Ativo',
-    avatar: 'AS'
-  },
-  {
-    id: 'u3',
-    name: 'Bruno Pires',
-    email: 'bruno.p@sextante.com.br',
-    role: 'ANALYST',
-    status: 'Inativo',
-    avatar: 'BP'
-  },
-  {
-    id: 'u4',
-    name: 'Alex Thompson',
-    email: 'alex.thompson@sextante.com.br',
-    role: 'ADMINISTRATOR',
-    status: 'Ativo',
-    avatar: 'AT'
-  },
-  {
-    id: 'u5',
-    name: 'Mariana Silva',
-    email: 'mariana.silva@sextante.com.br',
-    role: 'MANAGER',
-    status: 'Ativo',
-    avatar: 'MS'
-  }
-];
+export const initialUsers: UserProfile[] = [];
 
 export const initialMotives: string[] = [
   'Crescimento do cliente',

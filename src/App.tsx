@@ -10,6 +10,7 @@ import CadastrosView from './components/CadastrosView';
 import HonorariosView from './components/HonorariosView';
 import NovoDashView from './components/NovoDashView';
 import DashLiderancaView from './components/DashLiderancaView';
+import LoginView from './components/LoginView';
 
 import {
   initialSinaleira,
@@ -31,6 +32,23 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('novodash');
   const [isExecutiveView, setIsExecutiveView] = useState<boolean>(true);
 
+  // Active session logged user profile
+  const [loggedUser, setLoggedUser] = useState<UserProfile | null>(() => {
+    const cached = localStorage.getItem('sextante_logged_user_obj');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        console.warn('Erro ao restaurar usuario logado do cache:', e);
+      }
+    }
+    return null;
+  });
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return !!localStorage.getItem('sextante_logged_user_obj');
+  });
+
   // Auto-switch to operational dash if switching to leader view
   useEffect(() => {
     if (!isExecutiveView && currentTab !== 'dashlideranca') {
@@ -47,7 +65,61 @@ export default function App() {
     const cached = localStorage.getItem('qtdeHorasMes');
     return cached ? parseInt(cached, 10) : 220;
   });
-  const [users, setUsers] = useState<UserProfile[]>(initialUsers);
+
+  // Users state consumed directly from profiles table / localStorage cache
+  const [users, setUsers] = useState<UserProfile[]>(() => {
+    const cached = localStorage.getItem('sextante_profiles_v2');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {
+        console.warn('Erro ao carregar cache de perfis:', e);
+      }
+    }
+    return initialUsers;
+  });
+
+  // Fetch profiles directly from Supabase profiles table on mount if configured
+  useEffect(() => {
+    if (isSupabaseConfigured && supabase) {
+      const loadProfilesFromSupabase = async () => {
+        try {
+          const { data, error } = await supabase.from('profiles').select('*');
+          if (!error && data && data.length > 0) {
+            const loadedUsers: UserProfile[] = data.map((p: any) => ({
+              id: p.id,
+              name: p.nome || p.name || 'Usuário',
+              email: p.email,
+              role: p.role,
+              status: p.status || 'Ativo',
+              avatar: p.avatar || (p.nome || p.name || 'US').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+              novo_usuario: p.novo_usuario ?? true,
+              created_at: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+              password: p.password || p.senha
+            }));
+            setUsers(loadedUsers);
+            localStorage.setItem('sextante_profiles_v2', JSON.stringify(loadedUsers));
+
+            // Sync currently logged in user profile if exists in fetched profiles
+            const cachedUserStr = localStorage.getItem('sextante_logged_user_obj');
+            if (cachedUserStr) {
+              const currentObj = JSON.parse(cachedUserStr);
+              const freshObj = loadedUsers.find(u => u.id === currentObj.id || u.email.toLowerCase() === currentObj.email.toLowerCase());
+              if (freshObj) {
+                setLoggedUser(freshObj);
+                localStorage.setItem('sextante_logged_user_obj', JSON.stringify(freshObj));
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Erro de conexão ao carregar tabela profiles do Supabase:', err);
+        }
+      };
+      loadProfilesFromSupabase();
+    }
+  }, []);
+
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>(initialUploadedFiles);
   const [settings, setSettings] = useState<GlobalSettings>(initialSettings);
 
@@ -56,52 +128,60 @@ export default function App() {
   const [colaboradores, setColaboradores] = useState<Colaborador[]>(initialColaboradores);
   const [tarefas, setTarefas] = useState<Tarefa[]>(initialTarefas);
 
-  // Fetch parameters from Supabase if configured
-  useEffect(() => {
-    if (isSupabaseConfigured && supabase) {
-      const loadParametros = async () => {
-        try {
-          const { data, error } = await supabase
-            .from('parametros_sistema')
-            .select('*')
-            .eq('id', 'config_global')
-            .single();
+  // Active session profile index / selected user
+  const [currentUserId, setCurrentUserId] = useState<string>(() => {
+    const cachedId = localStorage.getItem('sextante_logged_user_id');
+    return cachedId || 'u1';
+  });
 
-          if (error) {
-            console.warn('Erro ao carregar parâmetros do Supabase:', error.message);
-          } else if (data) {
-            console.log('Parâmetros carregados com sucesso do Supabase:', data);
-            if (data.sinaleira) setSinaleira(data.sinaleira);
-            if (data.motivos) setMotives(data.motivos);
-            if (data.acoes) setActions(data.acoes);
-            if (data.qtde_horas_mes) {
-              setQtdeHorasMes(data.qtde_horas_mes);
-              localStorage.setItem('qtdeHorasMes', String(data.qtde_horas_mes));
-            }
-          }
-        } catch (err) {
-          console.warn('Erro de conexão com tabela parametros_sistema:', err);
-        }
-      };
-      loadParametros();
-    }
-  }, []);
-
-  // Profile pool for the interactive user switcher at the bottom left helper
-  const profilePool: UserProfile[] = [
-    { id: 'p1', name: 'Alex Thompson', email: 'alex.thompson@sextante.com.br', role: 'ADMINISTRATOR', status: 'Ativo', avatar: 'AT' },
-    { id: 'p2', name: 'Admin User', email: 'admin.user@sextante.com.br', role: 'ADMINISTRATOR', status: 'Ativo', avatar: 'AU' },
-    { id: 'p3', name: 'Alexandre M.', email: 'alexandre.m@sextante.com.br', role: 'ADMINISTRATOR', status: 'Ativo', avatar: 'AM' },
-    { id: 'p4', name: 'Mariana Silva', email: 'mariana.silva@sextante.com.br', role: 'MANAGER', status: 'Ativo', avatar: 'MS' },
-    { id: 'p5', name: 'Bruno Pires', email: 'bruno.p@sextante.com.br', role: 'ANALYST', status: 'Inativo', avatar: 'BP' }
-  ];
-  
-  const [profileIndex, setProfileIndex] = useState(0);
-  const currentUser = profilePool[profileIndex];
+  const currentUser: UserProfile = loggedUser || users.find(u => u.id === currentUserId) || users[0] || {
+    id: 'guest',
+    name: 'Usuário Ativo',
+    email: '',
+    role: 'Colaborador',
+    status: 'Ativo',
+    avatar: 'US',
+    novo_usuario: false
+  };
 
   // Cycling function for active profile
   const handleCycleUser = useCallback(() => {
-    setProfileIndex((prev) => (prev + 1) % profilePool.length);
+    if (users.length === 0) return;
+    const currentIndex = users.findIndex(u => u.id === (loggedUser?.id || currentUserId));
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % users.length : 0;
+    const nextUser = users[nextIndex];
+    if (nextUser) {
+      setLoggedUser(nextUser);
+      setCurrentUserId(nextUser.id);
+      localStorage.setItem('sextante_logged_user_obj', JSON.stringify(nextUser));
+      localStorage.setItem('sextante_logged_user_id', nextUser.id);
+    }
+  }, [users, loggedUser, currentUserId]);
+
+  // Logout handler routine
+  const handleLogout = useCallback(() => {
+    setIsAuthenticated(false);
+    setLoggedUser(null);
+    localStorage.removeItem('sextante_logged_user_obj');
+    localStorage.removeItem('sextante_logged_user_id');
+  }, []);
+
+  // Login handler routine
+  const handleLoginSuccess = useCallback((user: UserProfile) => {
+    setLoggedUser(user);
+    setCurrentUserId(user.id);
+    setIsAuthenticated(true);
+    localStorage.setItem('sextante_logged_user_obj', JSON.stringify(user));
+    localStorage.setItem('sextante_logged_user_id', user.id);
+
+    setUsers((prev) => {
+      if (!prev.some(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase())) {
+        const updated = [user, ...prev];
+        localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
+        return updated;
+      }
+      return prev;
+    });
   }, []);
 
   // Contracts updates handlers
@@ -217,13 +297,64 @@ export default function App() {
     }
   }, []);
 
-  // Access directory hooks
+  // Access directory hooks (Direct consumption of profiles table)
   const handleAddUser = useCallback((newUser: UserProfile) => {
-    setUsers((prev) => [...prev, newUser]);
+    setUsers((prev) => {
+      const updated = [...prev, newUser];
+      localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('profiles').insert({
+        id: newUser.id,
+        nome: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+        status: newUser.status,
+        novo_usuario: newUser.novo_usuario ?? true,
+        avatar: newUser.avatar,
+        created_at: newUser.created_at
+      }).then(({ error }) => {
+        if (error) console.error('Erro ao inserir perfil no Supabase:', error.message);
+      });
+    }
+  }, []);
+
+  const handleUpdateUser = useCallback((id: string, updatedFields: Partial<UserProfile>) => {
+    setUsers((prev) => {
+      const updated = prev.map((u) => (u.id === id ? { ...u, ...updatedFields } : u));
+      localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      const payload: any = {};
+      if (updatedFields.name !== undefined) payload.nome = updatedFields.name;
+      if (updatedFields.email !== undefined) payload.email = updatedFields.email;
+      if (updatedFields.role !== undefined) payload.role = updatedFields.role;
+      if (updatedFields.status !== undefined) payload.status = updatedFields.status;
+      if (updatedFields.novo_usuario !== undefined) payload.novo_usuario = updatedFields.novo_usuario;
+      if (updatedFields.password !== undefined) payload.password = updatedFields.password;
+
+      supabase.from('profiles').update(payload).eq('id', id).then(({ error }) => {
+        if (error) console.error('Erro ao atualizar perfil no Supabase:', error.message);
+      });
+    }
   }, []);
 
   const handleRemoveUser = useCallback((id: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== id));
+    setUsers((prev) => {
+      const updated = prev.filter((u) => u.id !== id);
+      localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('profiles').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error('Erro ao remover perfil no Supabase:', error.message);
+      });
+    }
   }, []);
 
   // Cadastros Module handlers
@@ -275,13 +406,12 @@ export default function App() {
     );
   }, []);
 
-  // Database reset trigger zone action
+  // Database reset trigger zone action (preserves profiles table)
   const handleResetDatabase = useCallback(() => {
     setContracts(initialContracts);
     setSinaleira(initialSinaleira);
     setMotives(initialMotives);
     setActions(initialActions);
-    setUsers(initialUsers);
     setUploadedFiles(initialUploadedFiles);
     setSettings(initialSettings);
     setClientes(initialClientes);
@@ -299,6 +429,17 @@ export default function App() {
     setCurrentTab(tabId);
   }, []);
 
+  // If user is logged out, render Login View
+  if (!isAuthenticated) {
+    return (
+      <LoginView
+        profiles={users}
+        onLoginSuccess={handleLoginSuccess}
+        onUpdateUser={handleUpdateUser}
+      />
+    );
+  }
+
   return (
     <div 
       className="flex min-h-screen bg-brand-surface text-brand-text antialiased" 
@@ -310,6 +451,7 @@ export default function App() {
         onTabChange={handleTabChange}
         currentUser={currentUser}
         onChangeUser={handleCycleUser}
+        onLogout={handleLogout}
         isExecutiveView={isExecutiveView}
       />
 
@@ -380,7 +522,9 @@ export default function App() {
           {currentTab === 'usuarios' && (
             <UsuariosView
               users={users}
+              currentUser={currentUser}
               onAddUser={handleAddUser}
+              onUpdateUser={handleUpdateUser}
               onRemoveUser={handleRemoveUser}
             />
           )}

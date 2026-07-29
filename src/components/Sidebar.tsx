@@ -22,7 +22,6 @@ interface SidebarProps {
   currentUser: UserProfile;
   onChangeUser: () => void;
   onLogout?: () => void;
-  isExecutiveView: boolean;
 }
 
 export default function Sidebar({
@@ -30,8 +29,7 @@ export default function Sidebar({
   onTabChange,
   currentUser,
   onChangeUser,
-  onLogout,
-  isExecutiveView
+  onLogout
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAcessoExpanded, setIsAcessoExpanded] = useState(() => {
@@ -56,27 +54,33 @@ export default function Sidebar({
     }
   }, [currentTab]);
 
+  const isLider = useMemo(() => {
+    if (!currentUser?.role) return false;
+    const normalized = currentUser.role.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return normalized === 'lider' || normalized.includes('lider');
+  }, [currentUser]);
+
   const menuItems1 = useMemo(() => {
     const items = [
       { id: 'novodash', label: 'Dash Executivo', icon: LayoutDashboard },
       { id: 'dashlideranca', label: 'Dash Lideres', icon: LayoutDashboard },
       { id: 'honorarios', label: 'Honorários', icon: Coins },
     ];
-    if (!isExecutiveView) {
+    if (isLider) {
       return items.filter(item => item.id === 'dashlideranca');
     }
     return items;
-  }, [isExecutiveView]);
+  }, [isLider]);
 
   const menuItems2 = useMemo(() => {
     const items = [
       { id: 'usuarios', label: 'Usuários', icon: Users },
     ];
-    if (!isExecutiveView) {
+    if (isLider) {
       return [];
     }
     return items;
-  }, [isExecutiveView]);
+  }, [isLider]);
 
   const handleOperacaoHeaderClick = () => {
     if (isCollapsed) {
@@ -186,7 +190,7 @@ export default function Sidebar({
             );
           })}
 
-          {isExecutiveView && (
+          {!isLider && (
             <>
               {/* Collapsible Operação Group */}
               <div className="flex flex-col space-y-1 pt-1.5 border-t border-brand-border/10">

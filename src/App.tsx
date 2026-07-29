@@ -30,7 +30,6 @@ import { Contract, UploadedFile, UserProfile, DefinedAction, GlobalSettings, Sin
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('novodash');
-  const [isExecutiveView, setIsExecutiveView] = useState<boolean>(true);
 
   // Active session logged user profile
   const [loggedUser, setLoggedUser] = useState<UserProfile | null>(() => {
@@ -48,13 +47,6 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return !!localStorage.getItem('sextante_logged_user_obj');
   });
-
-  // Auto-switch to operational dash if switching to leader view
-  useEffect(() => {
-    if (!isExecutiveView && currentTab !== 'dashlideranca') {
-      setCurrentTab('dashlideranca');
-    }
-  }, [isExecutiveView, currentTab]);
 
   // Shared application states
   const [contracts, setContracts] = useState<Contract[]>(initialContracts);
@@ -143,6 +135,17 @@ export default function App() {
     avatar: 'US',
     novo_usuario: false
   };
+
+  const isLider = currentUser?.role
+    ? currentUser.role.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes("lider")
+    : false;
+
+  // Auto-switch to leader dash if user is Lider
+  useEffect(() => {
+    if (isLider && currentTab !== 'dashlideranca') {
+      setCurrentTab('dashlideranca');
+    }
+  }, [isLider, currentTab]);
 
   // Cycling function for active profile
   const handleCycleUser = useCallback(() => {
@@ -480,8 +483,9 @@ export default function App() {
   }, []);
 
   const handleTabChange = useCallback((tabId: string) => {
+    if (isLider && tabId !== 'dashlideranca') return;
     setCurrentTab(tabId);
-  }, []);
+  }, [isLider]);
 
   // If user is logged out, render Login View
   if (!isAuthenticated) {
@@ -506,7 +510,6 @@ export default function App() {
         currentUser={currentUser}
         onChangeUser={handleCycleUser}
         onLogout={handleLogout}
-        isExecutiveView={isExecutiveView}
       />
 
       {/* 2. Main content viewport section with smooth scroll */}
@@ -536,17 +539,11 @@ export default function App() {
           )}
 
           {currentTab === 'novodash' && (
-            <NovoDashView 
-              isExecutiveView={isExecutiveView}
-              toggleExecutiveView={() => setIsExecutiveView(!isExecutiveView)}
-            />
+            <NovoDashView />
           )}
 
           {currentTab === 'dashlideranca' && (
-            <DashLiderancaView 
-              isExecutiveView={isExecutiveView}
-              toggleExecutiveView={() => setIsExecutiveView(!isExecutiveView)}
-            />
+            <DashLiderancaView />
           )}
 
           {currentTab === 'carga' && (

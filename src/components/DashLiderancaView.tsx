@@ -59,11 +59,11 @@ function formatSecondsToHms(seconds: number): string {
 }
 
 interface DashLiderancaViewProps {
-  isExecutiveView: boolean;
-  toggleExecutiveView: () => void;
+  isExecutiveView?: boolean;
+  toggleExecutiveView?: () => void;
 }
 
-export default function DashLiderancaView({ isExecutiveView, toggleExecutiveView }: DashLiderancaViewProps) {
+export default function DashLiderancaView({ isExecutiveView = false, toggleExecutiveView }: DashLiderancaViewProps = {}) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [apontamentosData, setApontamentosData] = useState<any[]>([]);
@@ -1388,15 +1388,6 @@ export default function DashLiderancaView({ isExecutiveView, toggleExecutiveView
             title="Atualizar dados"
           >
             <RefreshCw size={18} className={isLoading ? "animate-spin text-brand-primary" : ""} />
-          </button>
-          <button
-            onClick={toggleExecutiveView}
-            className={`flex items-center gap-2 font-bold text-xs px-4 py-2.5 rounded transition-colors shadow-md ${
-              isExecutiveView ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-amber-600 hover:bg-amber-500'
-            } text-white`}
-          >
-            <Eye size={14} />
-            <span>{isExecutiveView ? 'Visão Executiva' : 'Visão de Líderes'}</span>
           </button>
           <button
             onClick={handleExportCSV}

@@ -252,10 +252,10 @@ export default function LoginView({
         <div className="text-center space-y-2">
           <div className="flex justify-center py-1">
             <img 
-              src="https://raw.githubusercontent.com/datazzsancal-eng/logos/refs/heads/main/sextante/sextante_v.png" 
+              src="https://raw.githubusercontent.com/datazzsancal-eng/logos/refs/heads/main/sextante/logo_sextante_v.png" 
               alt="Sextante" 
               referrerPolicy="no-referrer"
-              className="h-10 max-w-full object-contain"
+              className="h-[180px] max-w-full object-contain"
             />
           </div>
           <p className="text-xs text-brand-text-muted max-w-sm mx-auto">

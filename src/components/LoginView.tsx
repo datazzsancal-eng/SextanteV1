@@ -176,13 +176,14 @@ export default function LoginView({
         
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-accent/10 border border-brand-accent/30 text-brand-primary text-xs font-black tracking-widest uppercase mb-1">
-            <ShieldCheck size={14} />
-            Autenticação Supabase OAuth & RLS
+          <div className="flex justify-center py-1">
+            <img 
+              src="https://raw.githubusercontent.com/datazzsancal-eng/logos/refs/heads/main/sextante/sextante_v.png" 
+              alt="Sextante" 
+              referrerPolicy="no-referrer"
+              className="h-10 max-w-full object-contain"
+            />
           </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">
-            SEXTANTE <span className="text-brand-primary">GESTAO</span>
-          </h1>
           <p className="text-xs text-brand-text-muted max-w-sm mx-auto">
             Acesso ao sistema de gestão operacional, honorários e sinaleiras.
           </p>
@@ -361,50 +362,6 @@ export default function LoginView({
           )}
 
         </div>
-
-        {/* Quick Profile Selector */}
-        {profiles.length > 0 ? (
-          <div className="bg-brand-card/60 p-4 rounded-xl border border-brand-border/60 space-y-3">
-            <div className="flex items-center justify-between text-xs text-brand-text-muted font-bold">
-              <span className="flex items-center gap-1.5 uppercase text-[10px] tracking-wider">
-                <UserCheck size={13} className="text-brand-primary" />
-                Perfis do Banco (Tabela Profiles)
-              </span>
-              <span className="text-[10px] text-brand-primary">{profiles.length} cadastrados</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {profiles.slice(0, 6).map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => handleSelectQuickUser(user)}
-                  className={`p-2 rounded border text-left transition-all cursor-pointer flex items-center gap-2 ${
-                    detectedUser?.id === user.id
-                      ? 'bg-brand-primary/20 border-brand-primary text-white'
-                      : 'bg-brand-bg/80 border-brand-border hover:bg-brand-card hover:border-brand-text-muted/40 text-brand-text-muted'
-                  }`}
-                >
-                  <div className="w-7 h-7 rounded-full bg-brand-card flex items-center justify-center font-bold text-[10px] text-white shrink-0 border border-brand-border">
-                    {user.avatar}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-bold text-white truncate">{user.name}</div>
-                    <div className="text-[9px] flex items-center gap-1">
-                      <span className="font-semibold text-brand-primary">{user.role}</span>
-                      {user.novo_usuario && (
-                        <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 rounded">Novo</span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="bg-brand-card/40 p-3 rounded-xl border border-brand-border/40 text-center text-xs text-brand-text-muted font-medium">
-            Digite seu e-mail cadastrado na tabela de perfis (profiles) para efetuar login.
-          </div>
-        )}
 
       </div>
 

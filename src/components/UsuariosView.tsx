@@ -92,8 +92,15 @@ export default function UsuariosView({
       .toUpperCase()
       .slice(0, 2);
 
+    const generatedId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+
     const newUser: UserProfile = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: generatedId,
       name: newUserName.trim(),
       email: newUserEmail.trim(),
       role: newUserRole,

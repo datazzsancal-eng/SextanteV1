@@ -298,30 +298,82 @@ export default function App() {
   }, []);
 
   // Access directory hooks (Direct consumption of profiles table)
-  const handleAddUser = useCallback((newUser: UserProfile) => {
+  const handleAddUser = useCallback(async (newUser: UserProfile) => {
+    // Validate or generate UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let userUuid = uuidRegex.test(newUser.id)
+      ? newUser.id
+      : (typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = Math.random() * 16 | 0;
+              return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            }));
+
+    const userWithUuid = { ...newUser, id: userUuid };
+
     setUsers((prev) => {
-      const updated = [...prev, newUser];
+      const updated = [userWithUuid, ...prev.filter(u => u.email.toLowerCase() !== userWithUuid.email.toLowerCase())];
       localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
       return updated;
     });
 
     if (isSupabaseConfigured && supabase) {
-      supabase.from('profiles').insert({
-        id: newUser.id,
-        nome: newUser.name,
-        email: newUser.email,
-        role: newUser.role,
-        status: newUser.status,
-        novo_usuario: newUser.novo_usuario ?? true,
-        avatar: newUser.avatar,
-        created_at: newUser.created_at
-      }).then(({ error }) => {
-        if (error) console.error('Erro ao inserir perfil no Supabase:', error.message);
-      });
+      try {
+        let authUserId = userUuid;
+
+        // 1. Attempt to create user in Supabase Auth (auth.users)
+        const tempPassword = 'Sextante#' + Math.floor(100000 + Math.random() * 900000);
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: userWithUuid.email,
+          password: tempPassword,
+          options: {
+            data: {
+              nome: userWithUuid.name,
+              role: userWithUuid.role,
+              avatar: userWithUuid.avatar
+            }
+          }
+        });
+
+        if (!authError && authData?.user?.id) {
+          authUserId = authData.user.id;
+          userWithUuid.id = authUserId;
+
+          // Update local state with the assigned auth.users UUID
+          setUsers((prev) => {
+            const updated = prev.map(u => u.email.toLowerCase() === userWithUuid.email.toLowerCase() ? { ...u, id: authUserId } : u);
+            localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
+            return updated;
+          });
+        } else if (authError) {
+          console.warn('Registro no Supabase auth.users:', authError.message);
+        }
+
+        // 2. Persist in public.profiles table
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: authUserId,
+          nome: userWithUuid.name,
+          email: userWithUuid.email,
+          role: userWithUuid.role,
+          status: userWithUuid.status,
+          novo_usuario: userWithUuid.novo_usuario ?? true,
+          avatar: userWithUuid.avatar,
+          created_at: userWithUuid.created_at
+        }, { onConflict: 'email' });
+
+        if (profileError) {
+          console.error('Erro ao salvar em public.profiles:', profileError.message);
+        } else {
+          console.log('Usuário registrado com sucesso em public.profiles:', userWithUuid.email);
+        }
+      } catch (err) {
+        console.error('Exceção ao persistir no Supabase:', err);
+      }
     }
   }, []);
 
-  const handleUpdateUser = useCallback((id: string, updatedFields: Partial<UserProfile>) => {
+  const handleUpdateUser = useCallback(async (id: string, updatedFields: Partial<UserProfile>) => {
     setUsers((prev) => {
       const updated = prev.map((u) => (u.id === id ? { ...u, ...updatedFields } : u));
       localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
@@ -335,15 +387,16 @@ export default function App() {
       if (updatedFields.role !== undefined) payload.role = updatedFields.role;
       if (updatedFields.status !== undefined) payload.status = updatedFields.status;
       if (updatedFields.novo_usuario !== undefined) payload.novo_usuario = updatedFields.novo_usuario;
-      if (updatedFields.password !== undefined) payload.password = updatedFields.password;
 
-      supabase.from('profiles').update(payload).eq('id', id).then(({ error }) => {
-        if (error) console.error('Erro ao atualizar perfil no Supabase:', error.message);
-      });
+      const { error } = await supabase.from('profiles').update(payload).eq('id', id);
+      if (error && updatedFields.email) {
+        await supabase.from('profiles').update(payload).eq('email', updatedFields.email);
+      }
     }
   }, []);
 
-  const handleRemoveUser = useCallback((id: string) => {
+  const handleRemoveUser = useCallback(async (id: string) => {
+    const targetUser = users.find(u => u.id === id);
     setUsers((prev) => {
       const updated = prev.filter((u) => u.id !== id);
       localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
@@ -351,11 +404,12 @@ export default function App() {
     });
 
     if (isSupabaseConfigured && supabase) {
-      supabase.from('profiles').delete().eq('id', id).then(({ error }) => {
-        if (error) console.error('Erro ao remover perfil no Supabase:', error.message);
-      });
+      const { error } = await supabase.from('profiles').delete().eq('id', id);
+      if (error && targetUser?.email) {
+        await supabase.from('profiles').delete().eq('email', targetUser.email);
+      }
     }
-  }, []);
+  }, [users]);
 
   // Cadastros Module handlers
   const handleAddCliente = useCallback((newC: Cliente) => {

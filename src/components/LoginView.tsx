@@ -98,7 +98,7 @@ export default function LoginView({
   };
 
   // Step 2: Handle First Access Password Creation
-  const handleSaveFirstPassword = (e: React.FormEvent) => {
+  const handleSaveFirstPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -113,6 +113,39 @@ export default function LoginView({
       setErrorMessage('As senhas informadas não coincidem.');
       return;
     }
+
+    setIsCheckingEmail(true);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        // Attempt registration/password update in auth.users
+        const { error: signUpErr } = await supabase.auth.signUp({
+          email: detectedUser.email,
+          password: firstPassword,
+          options: {
+            data: {
+              nome: detectedUser.name,
+              role: detectedUser.role
+            }
+          }
+        });
+
+        if (signUpErr) {
+          const { error: signInErr } = await supabase.auth.signInWithPassword({
+            email: detectedUser.email,
+            password: firstPassword
+          });
+
+          if (signInErr) {
+            await supabase.auth.updateUser({ password: firstPassword });
+          }
+        }
+      } catch (err) {
+        console.warn('Aviso ao registrar senha no Supabase Auth:', err);
+      }
+    }
+
+    setIsCheckingEmail(false);
 
     // Update user in profiles: set novo_usuario = false and set password
     const updatedUser: UserProfile = {
@@ -136,13 +169,54 @@ export default function LoginView({
   };
 
   // Step 3: Handle Regular Password Login
-  const handleRegularLogin = (e: React.FormEvent) => {
+  const handleRegularLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
     if (!detectedUser) return;
 
-    // Check password if set, or allow direct OAuth login
+    if (!passwordInput) {
+      setErrorMessage('Por favor, digite sua senha de acesso.');
+      return;
+    }
+
+    setIsCheckingEmail(true);
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: detectedUser.email,
+          password: passwordInput,
+        });
+
+        if (!error && data?.session) {
+          setIsCheckingEmail(false);
+          onLoginSuccess(detectedUser);
+          return;
+        }
+
+        if (error) {
+          console.warn('Validação no auth.users do Supabase:', error.message);
+
+          // Check if local or profile password fallback matches
+          if (detectedUser.password && passwordInput === detectedUser.password) {
+            setIsCheckingEmail(false);
+            onLoginSuccess(detectedUser);
+            return;
+          }
+
+          setIsCheckingEmail(false);
+          setErrorMessage('Senha incorreta. Verifique a senha informada.');
+          return;
+        }
+      } catch (err: any) {
+        console.warn('Exceção ao autenticar com Supabase auth:', err);
+      }
+    }
+
+    setIsCheckingEmail(false);
+
+    // Fallback for offline or non-Supabase environment
     if (detectedUser.password && passwordInput !== detectedUser.password) {
       setErrorMessage('Senha incorreta. Tente novamente.');
       return;
@@ -341,20 +415,13 @@ export default function LoginView({
                 />
               </div>
 
-              <div className="space-y-2 pt-1">
+              <div className="pt-1">
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 rounded bg-brand-accent hover:bg-brand-accent/90 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                  disabled={isCheckingEmail}
+                  className="w-full py-2.5 px-4 rounded bg-brand-accent hover:bg-brand-accent/90 disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center justify-center gap-2"
                 >
-                  Entrar no Sistema
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onLoginSuccess(detectedUser)}
-                  className="w-full py-2 px-4 rounded bg-brand-bg hover:bg-brand-card-bright text-brand-primary border border-brand-border/60 font-bold text-xs transition-all cursor-pointer"
-                >
-                  Acessar via Supabase OAuth
+                  {isCheckingEmail ? 'Validando Senha...' : 'Entrar no Sistema'}
                 </button>
               </div>
 

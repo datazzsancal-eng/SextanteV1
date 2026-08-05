@@ -71,10 +71,11 @@ export interface Cliente {
   tipo_pessoa?: string | null;
   ativo?: boolean | null;
   grupo_id?: string | null;
-  tipo_trib?: string | null;
+  sit_trib_id?: string | null;
   detalhes?: string | null;
   cli_nome?: string | null;
   dim_grupo_cliente?: { nome: string } | null;
+  dim_situacao_trib?: { resumido?: string | null; situacao?: string | null } | null;
   cnpjCpf: string; // for fallback local array mapping backwards compatibility
   
   // mock data legacy fields
@@ -122,10 +123,25 @@ export interface DimCliente {
   tipo_pessoa?: string | null;
   ativo?: boolean | null;
   grupo_id?: string | null;
-  tipo_trib?: string | null;
+  sit_trib_id?: string | null;
   detalhes?: string | null;
   cli_nome?: string | null;
   dim_grupo_cliente?: { nome: string } | null;
+  dim_situacao_trib?: { resumido?: string | null; situacao?: string | null } | null;
+}
+
+export interface DimSituacaoTrib {
+  id: string;
+  created_at?: string;
+  resumido?: string | null;
+  situacao?: string | null;
+  ativo?: string | null;
+  grupo?: string | null;
+}
+
+export interface DimTarefa {
+  id: string;
+  nome: string;
 }
 
 export interface DimDepartamento {

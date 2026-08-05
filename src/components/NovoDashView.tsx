@@ -129,7 +129,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
             let { data: altData, error: altError } = await supabase
               .from('vw_apontamento_mensal_resumo')
               .select('aponta_ano, aponta_mes')
-              .eq('depto_calcula_sn', true);
+              ;
             
             if (!altError && altData) {
               altData.forEach((row: any) => {
@@ -294,7 +294,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
             let query = supabase
               .from('vw_apontamento_mensal_resumo')
               .select('empresa_id, aponta_ano, aponta_mes, aponta_qtde_segundos')
-              .eq('depto_calcula_sn', true);
+              ;
 
             const targetPeriods = targets.map(t => {
               const [y, m] = t.split('-');
@@ -381,163 +381,106 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           while (hasMore) {
             let query = supabase.from('vw_apontamento_mensal_resumo')
               .select('*')
-              .eq('depto_calcula_sn', true);
+              ;
 
-            if (periodsInt.length === 1) {
-              query = query.eq('aponta_ano', periodsInt[0].ano).eq('aponta_mes', periodsInt[0].mes);
-            } else {
-              const orCond = periodsInt.map(p => `and(aponta_ano.eq.${p.ano},aponta_mes.eq.${p.mes})`).join(',');
-              if (orCond) query = query.or(orCond);
-            }
+            const prevYears = Array.from(new Set(periodsInt.map(p => p.ano)));
+          if (prevYears.length > 0) {
+            query = query.in('aponta_ano', prevYears);
+          }
 
-            const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
-            if (error) throw error;
+          const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+          if (error) throw error;
 
-            if (data && data.length > 0) {
-              const mappedData = data.map((row: any) => ({
-                id: `${row.empresa_id}-${row.depto_id}-${row.aponta_ano}-${row.aponta_mes}`,
-                grupo_id: row.grupo_id,
-                grupo_nome: row.grupo_nome,
-                cliente_id: row.empresa_id,
-                codigo: row.empresa_codigo,
-                tipo_pessoa: row.empresa_tp_pessoa || 'PJ',
-                nome: row.empresa_nome,
-                documento: row.empresa_documento,
-                tipo_trib: row.empresa_tp_trib,
-                usuario_id: null,
-                nome_colab: null,
-                colaborador_id: null,
-                tarefa_id: null,
-                tarefa: 'GERAL',
-                departamento_id: row.depto_id,
-                departamento: row.depto_nome,
-                depto_calcula_sn: row.depto_calcula_sn,
-                data_apontamento: `${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}-01`,
-                ano: row.aponta_ano,
-                mes: row.aponta_mes,
-                qtde_segundos: row.aponta_qtde_segundos || 0,
-                qtde_horas: row.aponta_qtde_horas || 0,
-                tempo_horas: row.aponta_tempo_horas || '00:00:00',
-                valor_hora: row.aponta_qtde_horas ? (row.aponta_valor_lancamento / row.aponta_qtde_horas) : 0,
-                valor_lancamento: row.aponta_valor_lancamento || 0,
-                carregado_em: null
-              }));
+          if (data && data.length > 0) {
+            const validSet = new Set(periodsInt.map(p => `${p.ano}-${p.mes}`));
+            const filteredData = data.filter((row: any) => validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined));
+            const mappedData = filteredData.map((row: any) => ({
+              id: `${row.empresa_id}-${row.depto_id}-${row.aponta_ano}-${row.aponta_mes}`,
+              grupo_id: row.grupo_id,
+              grupo_nome: row.grupo_nome,
+              cliente_id: row.empresa_id,
+              codigo: row.empresa_codigo,
+              tipo_pessoa: row.empresa_tp_pessoa || 'PJ',
+              nome: row.empresa_nome,
+              documento: row.empresa_documento,
+              sit_trib_id: row.empresa_tp_trib,
+              usuario_id: null,
+              nome_colab: null,
+              colaborador_id: null,
+              tarefa_id: null,
+              tarefa: 'GERAL',
+              departamento_id: row.depto_id,
+              departamento: row.depto_nome,
+              depto_calcula_sn: row.depto_calcula_sn,
+              data_apontamento: `${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}-01`,
+              ano: row.aponta_ano,
+              mes: row.aponta_mes,
+              qtde_segundos: row.aponta_qtde_segundos || 0,
+              qtde_horas: row.aponta_qtde_horas || 0,
+              tempo_horas: row.aponta_tempo_horas || '00:00:00',
+              valor_hora: row.aponta_qtde_horas ? (row.aponta_valor_lancamento / row.aponta_qtde_horas) : 0,
+              valor_lancamento: row.aponta_valor_lancamento || 0,
+              carregado_em: null
+            }));
 
-              allFetched = [...allFetched, ...mappedData];
-              if (data.length < pageSize || allFetched.length > 50000) {
-                hasMore = false;
-              }
-            } else {
+            allFetched = [...allFetched, ...mappedData];
+            if (data.length < pageSize || allFetched.length > 50000) {
               hasMore = false;
             }
-            page++;
+          } else {
+            hasMore = false;
           }
-          setApontamentosData(allFetched);
-
-          // Fetch monthly honorarios from viw_acomp_honor_mensal
-          let honorList: any[] = [];
-          const honPeriodsInt = periodsInInterval.map(p => {
-            const [y, m] = p.split('-');
-            return parseInt(`${y}${String(m).padStart(2, '0')}`);
-          });
-
-          let honPage = 0;
-          const honPageSize = 1000;
-          let honHasMore = true;
-
-          while (honHasMore) {
-            let queryHon = supabase.from('viw_acomp_honor_mensal').select('grupo_raiz, cli_codigo, hnr_valor, hnr_periodo_int');
-            if (honPeriodsInt.length === 1) {
-              queryHon = queryHon.eq('hnr_periodo_int', honPeriodsInt[0]);
-            } else if (honPeriodsInt.length > 1) {
-              queryHon = queryHon.in('hnr_periodo_int', honPeriodsInt);
-            }
-
-            const { data: honData, error: honError } = await queryHon.range(honPage * honPageSize, (honPage + 1) * honPageSize - 1);
-            if (honError) {
-              console.error('Error fetching honorarios:', honError);
-              break;
-            }
-
-            if (honData && honData.length > 0) {
-              honorList = [...honorList, ...honData];
-              if (honData.length < honPageSize) honHasMore = false;
-            } else {
-              honHasMore = false;
-            }
-            honPage++;
-          }
-          setHonorariosData(honorList);
-
-        } catch (err: any) {
-          console.error('Error fetching dashboard data details:', err, err?.message, err?.details, err?.hint);
-          setErrorMsg(err?.message || 'Erro ao sincronizar informações.');
-        } finally {
-          setIsLoading(false);
+          page++;
         }
-      } else {
-        // Offline mockup generator
-        setTimeout(() => {
-          const generated: any[] = [];
-          periodsInInterval.forEach(p => {
-            const [y, m] = p.split('-').map(Number);
-            for (let i = 0; i < 60; i++) {
-              const segs = Math.floor(3600 + Math.random() * 18000);
-              const hrs = parseFloat((segs / 3600).toFixed(4));
-              const doc = `03881553000${(i % 5) + 1}99`;
-              generated.push({
-                id: `mock-${y}-${m}-${i}`,
-                grupo_id: i % 3 === 0 ? 'g-1' : null,
-                grupo_nome: i % 3 === 0 ? 'GRUPO COMERCIAL SCHAEFER' : null,
-                cliente_id: `cli-${i % 10}`,
-                codigo: String(100 + (i % 10)),
-                tipo_pessoa: 'PJ',
-                nome: `CLIENTE CORPORATIVO ${(i % 10) + 1}`,
-                documento: doc,
-                tipo_trib: 'Lucro Presumido',
-                usuario_id: `colab-${i % 4}`,
-                nome_colab: `COLABORADOR EXECUTIVO ${(i % 4) + 1}`,
-                tarefa_id: `task-${i % 5}`,
-                tarefa: `AUDITORIA E CONSULTORIA ${(i % 5) + 1}`,
-                departamento_id: `dept-${i % 3}`,
-                departamento: i % 3 === 0 ? 'CONTÁBIL' : i % 3 === 1 ? 'FISCAL' : 'DEPARTAMENTO PESSOAL',
-                data_apontamento: `${y}-${String(m).padStart(2, '0')}-${String(1 + Math.floor(Math.random() * 28)).padStart(2, '0')}`,
-                ano: y,
-                mes: m,
-                qtde_segundos: segs,
-                qtde_horas: hrs,
-                valor_hora: 150,
-                valor_lancamento: parseFloat((hrs * 150).toFixed(2)),
-                carregado_em: new Date().toISOString()
-              });
-            }
-          });
-          setApontamentosData(generated);
+        setApontamentosData(allFetched);
 
-          // Mock honorarios matching the generated documents
-          const hList: any[] = [];
-          periodsInInterval.forEach(p => {
-            const [y, m] = p.split('-').map(Number);
-            const pInt = parseInt(`${y}${String(m).padStart(2, '0')}`);
-            for (let i = 0; i < 10; i++) {
-              const doc = `03881553000${(i % 5) + 1}99`;
-              hList.push({
-                grupo_raiz: getGrupoRaiz('PJ', doc),
-                cli_codigo: String(100 + i),
-                hnr_valor: 1500 + (i * 200),
-                hnr_periodo_int: pInt
-              });
-            }
-          });
-          setHonorariosData(hList);
-          setIsLoading(false);
-        }, 500);
+        // Fetch monthly honorarios from viw_acomp_honor_mensal
+        let honorList: any[] = [];
+        const honPeriodsInt = periodsInInterval.map(p => {
+          const [y, m] = p.split('-');
+          return parseInt(`${y}${String(m).padStart(2, '0')}`);
+        });
+
+        let honPage = 0;
+        const honPageSize = 1000;
+        let honHasMore = true;
+
+        while (honHasMore) {
+          let queryHon = supabase.from('viw_acomp_honor_mensal').select('grupo_raiz, cli_codigo, hnr_valor, hnr_periodo_int');
+          if (honPeriodsInt.length === 1) {
+            queryHon = queryHon.eq('hnr_periodo_int', honPeriodsInt[0]);
+          } else if (honPeriodsInt.length > 1) {
+            queryHon = queryHon.in('hnr_periodo_int', honPeriodsInt);
+          }
+
+          const { data: honData, error: honError } = await queryHon.range(honPage * honPageSize, (honPage + 1) * honPageSize - 1);
+          if (honError) {
+            console.error('Error fetching honorarios:', honError);
+            break;
+          }
+
+          if (honData && honData.length > 0) {
+            honorList = [...honorList, ...honData];
+            if (honData.length < honPageSize) honHasMore = false;
+          } else {
+            honHasMore = false;
+          }
+          honPage++;
+        }
+        setHonorariosData(honorList);
+
+      } catch (err: any) {
+        console.error('Error fetching current pointers:', err);
+        setErrorMsg(err.message ? `Erro: ${err.message}` : `Erro ao carregar apontamentos: ${JSON.stringify(err)}`);
+      } finally {
+        setIsLoading(false);
+      }
       }
     };
     fetchData();
-  }, [periodsInInterval, refreshTrigger]);
+  }, [periodsInInterval, isSupabaseConfigured, supabase, refreshTrigger]);
 
-  // Fetch previous year data dynamically for KPI comparisons
+  // Fetch previous year data dynamically based on the exact periods selected
   useEffect(() => {
     const fetchPreviousYearMetrics = async () => {
       const validPrevPeriods = prevYearPeriodsInInterval.filter(p => {
@@ -568,21 +511,21 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
 
         while (hasMore) {
           let query = supabase.from('vw_apontamento_mensal_resumo')
-            .select('empresa_id, empresa_nome, aponta_qtde_segundos, aponta_valor_lancamento')
-            .eq('depto_calcula_sn', true);
+            .select('*')
+            ;
 
-          if (periodsInt.length === 1) {
-            query = query.eq('aponta_ano', periodsInt[0].ano).eq('aponta_mes', periodsInt[0].mes);
-          } else {
-            const orCond = periodsInt.map(p => `and(aponta_ano.eq.${p.ano},aponta_mes.eq.${p.mes})`).join(',');
-            if (orCond) query = query.or(orCond);
+          const prevYears = Array.from(new Set(periodsInt.map(p => p.ano)));
+          if (prevYears.length > 0) {
+            query = query.in('aponta_ano', prevYears);
           }
 
           const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
           if (error) throw error;
 
           if (data && data.length > 0) {
-            const mappedData = data.map((row: any) => ({
+            const validSet = new Set(periodsInt.map(p => `${p.ano}-${p.mes}`));
+            const filteredData = data.filter((row: any) => validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined));
+            const mappedData = filteredData.map((row: any) => ({
               cliente_id: row.empresa_id,
               nome: row.empresa_nome,
               qtde_segundos: row.aponta_qtde_segundos || 0,
@@ -617,7 +560,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
         setPrevTotalSeconds(sumSeconds);
 
       } catch (err) {
-        console.error('Error fetching previous year metrics:', err);
+        console.error('Error fetching previous year metrics DETAILS:', JSON.stringify(err, null, 2), err);
         setPrevDistinctClients(0);
         setPrevTotalValorLacto(0);
         setPrevTotalSeconds(0);

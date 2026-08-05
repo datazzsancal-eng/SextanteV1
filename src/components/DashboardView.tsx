@@ -1127,7 +1127,7 @@ export default function DashboardView({
         try {
           let query = supabase
             .from('viw_resumo_hora_mes')
-            .select('tempo_segundos');
+            .select('*');
 
           if (periodsInInterval.length === 1) {
             const [y, m] = periodsInInterval[0].split('-');
@@ -1195,26 +1195,23 @@ export default function DashboardView({
         while (hasMore) {
           let queryColab = supabase
             .from('vwm_agr_hora_cli')
-            .select('cliente_nome, valor_lacto');
+            .select('*');
 
-          if (validPrevPeriods.length === 1) {
-            const [y, m] = validPrevPeriods[0].split('-');
-            queryColab = queryColab.eq('ano', parseInt(y)).eq('mes', parseInt(m));
-          } else {
-            const orCondition = validPrevPeriods.map(p => {
-              const [y, m] = p.split('-');
-              return `and(ano.eq.${parseInt(y)},mes.eq.${parseInt(m)})`;
-            }).join(',');
-            if (orCondition) {
-              queryColab = queryColab.or(orCondition);
-            }
+          const prevYears = Array.from(new Set(validPrevPeriods.map(p => parseInt(p.split('-')[0]))));
+          if (prevYears.length > 0) {
+            queryColab = queryColab.in('ano', prevYears);
           }
 
           const { data, error: colabError } = await queryColab.range(page * pageSize, (page + 1) * pageSize - 1);
           if (colabError) throw colabError;
 
           if (data && data.length > 0) {
-            colabData = [...colabData, ...data];
+            const validSet = new Set(validPrevPeriods.map(p => {
+              const [y, m] = p.split('-');
+              return `${parseInt(y)}-${parseInt(m)}`;
+            }));
+            const filteredData = data.filter((row: any) => validSet.has(`${row.ano}-${row.mes}`));
+            colabData = [...colabData, ...filteredData];
             if (data.length < pageSize) {
               hasMore = false;
             }
@@ -1239,30 +1236,28 @@ export default function DashboardView({
         // 2. Fetch viw_resumo_hora_mes for previous year interval to get total hours and total seconds
         let queryHours = supabase
           .from('viw_resumo_hora_mes')
-          .select('tempo_segundos');
+          .select('*');
 
-        if (validPrevPeriods.length === 1) {
-          const [y, m] = validPrevPeriods[0].split('-');
-          queryHours = queryHours.eq('ano', parseInt(y)).eq('mes', parseInt(m));
-        } else {
-          const orCondition = validPrevPeriods.map(p => {
-            const [y, m] = p.split('-');
-            return `and(ano.eq.${parseInt(y)},mes.eq.${parseInt(m)})`;
-          }).join(',');
-          if (orCondition) {
-            queryHours = queryHours.or(orCondition);
-          }
+        const prevYearsHours = Array.from(new Set(validPrevPeriods.map(p => parseInt(p.split('-')[0]))));
+        if (prevYearsHours.length > 0) {
+          queryHours = queryHours.in('ano', prevYearsHours);
         }
 
         const { data: hoursData, error: hoursError } = await queryHours;
         if (hoursError) throw hoursError;
 
-        const totalSecs = hoursData?.reduce((acc: number, cur: any) => acc + (cur.tempo_segundos || 0), 0) || 0;
+        const validSetHours = new Set(validPrevPeriods.map(p => {
+          const [y, m] = p.split('-');
+          return `${parseInt(y)}-${parseInt(m)}`;
+        }));
+        const filteredHoursData = hoursData?.filter((row: any) => validSetHours.has(`${row.ano}-${row.mes}`)) || [];
+
+        const totalSecs = filteredHoursData.reduce((acc: number, cur: any) => acc + (cur.tempo_segundos || 0), 0) || 0;
         setPrevTotalHours(formatSecondsToHms(totalSecs));
         setPrevTotalSeconds(totalSecs);
 
       } catch (err) {
-        console.error('Error fetching previous year metrics:', err);
+        console.error('Error fetching previous year metrics DETAILS:', JSON.stringify(err, null, 2), err);
         setPrevDistinctClients(0);
         setPrevTotalValorLacto(0);
         setPrevTotalHours('00:00:00');

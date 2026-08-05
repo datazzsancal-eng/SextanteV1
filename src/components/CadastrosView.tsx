@@ -27,13 +27,15 @@ import {
   KeyRound,
   RefreshCw,
   Link,
+  X,
+  Edit2,
   Link2,
   UserCheck,
   UserPlus,
   UserX,
   Check,
   Unlink
-, Edit2 } from 'lucide-react';
+ } from 'lucide-react';
 import { Cliente, Departamento, Colaborador, Tarefa, DimCliente, DimDepartamento } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
@@ -78,7 +80,7 @@ interface CadastrosViewProps {
   onToggleTarefaStatus: (id: string) => void;
 }
 
-type CadastroTab = 'clientes' | 'grp_clientes' | 'departamentos' | 'grp_cargos' | 'colaboradores' | 'tarefas';
+type CadastroTab = 'clientes' | 'grp_clientes' | 'situacao_trib' | 'departamentos' | 'grp_cargos' | 'colaboradores' | 'tarefas';
 
 export default function CadastrosView({
   clientes,
@@ -100,9 +102,11 @@ export default function CadastrosView({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'Todos' | 'Ativo' | 'Inativo'>('Todos');
   const [tipoPessoaFilter, setTipoPessoaFilter] = useState<'Todos' | 'PF' | 'PJ'>('Todos');
+  const [sitTribFilter, setSitTribFilter] = useState('Todos');
   const [taskStatusFilter, setTaskStatusFilter] = useState<'Todos' | 'Pendente' | 'Em Andamento' | 'Concluída'>('Todos');
   const [taskPriorityFilter, setTaskPriorityFilter] = useState<'Todos' | 'Baixa' | 'Média' | 'Alta'>('Todos');
   const [relacionamentoFilter, setRelacionamentoFilter] = useState<'Todos' | 'Relacionados' | 'NaoRelacionados'>('Todos');
+  const [grupoFuncaoFilter, setGrupoFuncaoFilter] = useState('Todos');
 
   // States for Grupo de Cliente (dim_grupo_cliente)
   const [supabaseGrpClientes, setSupabaseGrpClientes] = useState<any[]>([]);
@@ -110,6 +114,10 @@ export default function CadastrosView({
   const [isLoadingSupabaseGrpClientes, setIsLoadingSupabaseGrpClientes] = useState(false);
   const [supabaseGrpClientesError, setSupabaseGrpClientesError] = useState<string | null>(null);
   const [localGrpClientes, setLocalGrpClientes] = useState<any[]>([]);
+  const [supabaseSituacaoTrib, setSupabaseSituacaoTrib] = useState<any[]>([]);
+  const [supabaseSituacaoTribCount, setSupabaseSituacaoTribCount] = useState<number | null>(null);
+  const [isLoadingSupabaseSituacaoTrib, setIsLoadingSupabaseSituacaoTrib] = useState(false);
+  const [supabaseSituacaoTribError, setSupabaseSituacaoTribError] = useState<string | null>(null);
 
   // Supabase Integration States & Functions
   const [supabaseClients, setSupabaseClients] = useState<DimCliente[]>([]);
@@ -130,6 +138,7 @@ export default function CadastrosView({
   const [dbAllDepartamentos, setDbAllDepartamentos] = useState<any[]>([]);
   const [dbAllGrpClientes, setDbAllGrpClientes] = useState<any[]>([]);
   const [dbAllGrpCargos, setDbAllGrpCargos] = useState<any[]>([]);
+  const [dbAllSituacoesTrib, setDbAllSituacoesTrib] = useState<any[]>([]);
   
   // Local state for grp_cargos when Supabase is not configured
   const [localGrpCargos, setLocalGrpCargos] = useState<any[]>([
@@ -143,6 +152,13 @@ export default function CadastrosView({
   const [supabaseColaboradoresCount, setSupabaseColaboradoresCount] = useState<number | null>(null);
   const [isLoadingSupabaseColabs, setIsLoadingSupabaseColabs] = useState(false);
   const [supabaseColabsError, setSupabaseColabsError] = useState<string | null>(null);
+
+  
+  // Supabase Tarefas States
+  const [supabaseTarefas, setSupabaseTarefas] = useState<any[]>([]);
+  const [supabaseTarefasCount, setSupabaseTarefasCount] = useState<number | null>(null);
+  const [isLoadingSupabaseTarefas, setIsLoadingSupabaseTarefas] = useState(false);
+  const [supabaseTarefasError, setSupabaseTarefasError] = useState<string | null>(null);
 
   // States and mechanisms for mapping dim_usuario with rh_colaborador
   const [selectedDimUsuario, setSelectedDimUsuario] = useState<any | null>(null);
@@ -315,7 +331,7 @@ export default function CadastrosView({
       setHasNewRelationshipChange(true);
 
       // Reload the listing
-      await fetchSupabaseColaboradores(currentPage, searchTerm, relacionamentoFilter);
+      await fetchSupabaseColaboradores(currentPage, searchTerm, relacionamentoFilter, grupoFuncaoFilter);
 
       // Trigger standard local state updater so it reflects on active tab view
       try {
@@ -472,8 +488,35 @@ export default function CadastrosView({
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
+
+  const fetchSupabaseTarefas = async (page: number, search: string) => {
+    if (!isSupabaseConfigured || !supabase) return;
+    setIsLoadingSupabaseTarefas(true);
+    setSupabaseTarefasError(null);
+    try {
+      const from = (page - 1) * itemsPerPage;
+      const to = page * itemsPerPage - 1;
+      let query = supabase.from('dim_tarefa').select('*', { count: 'exact' });
+      if (search.trim()) {
+        query = query.ilike('nome', `%${search.trim()}%`);
+      }
+      const { data, count, error } = await query
+        .order('nome', { ascending: true })
+        .range(from, to);
+
+      if (error) throw error;
+      setSupabaseTarefas(data || []);
+      if (count !== null) setSupabaseTarefasCount(count);
+    } catch (err: any) {
+      console.error('Error fetching Supabase tarefas:', err);
+      setSupabaseTarefasError(err.message || 'Erro ao carregar tarefas.');
+    } finally {
+      setIsLoadingSupabaseTarefas(false);
+    }
+  };
+
   // Supabase load function for Colaboradores
-  const fetchSupabaseColaboradores = async (page: number, search: string, relacionamento: 'Todos' | 'Relacionados' | 'NaoRelacionados' = 'Todos') => {
+  const fetchSupabaseColaboradores = async (page: number, search: string, relacionamento: 'Todos' | 'Relacionados' | 'NaoRelacionados' = 'Todos', grpFuncao: string = 'Todos') => {
     if (!isSupabaseConfigured || !supabase) return;
     setIsLoadingSupabaseColabs(true);
     setSupabaseColabsError(null);
@@ -493,6 +536,9 @@ export default function CadastrosView({
         query = query.not('colaborador_id', 'is', null);
       } else if (relacionamento === 'NaoRelacionados') {
         query = query.is('colaborador_id', null);
+      }
+      if (grpFuncao !== 'Todos') {
+        query = query.eq('grp_crg_nome', grpFuncao);
       }
 
       const { data, count, error } = await query
@@ -516,7 +562,7 @@ export default function CadastrosView({
   };
 
   // Supabase load function for Clientes
-  const fetchSupabaseClients = async (page: number, search: string, status: string, tipoPessoa: string) => {
+  const fetchSupabaseClients = async (page: number, search: string, status: string, tipoPessoa: string, sitTrib: string) => {
     if (!isSupabaseConfigured || !supabase) return;
     setIsLoadingSupabase(true);
     setSupabaseError(null);
@@ -543,6 +589,12 @@ export default function CadastrosView({
         query = query.eq('tipo_pessoa', 'PF');
       } else if (tipoPessoa === 'PJ') {
         query = query.eq('tipo_pessoa', 'PJ');
+      }
+
+      if (sitTrib === 'SemSituacao') {
+        query = query.is('sit_trib_id', null);
+      } else if (sitTrib !== 'Todos') {
+        query = query.eq('sit_trib_id', sitTrib);
       }
 
       const { data, count, error } = await query
@@ -682,6 +734,46 @@ export default function CadastrosView({
       setSupabaseGrpClientesError(err.message || 'Erro ao carregar Grupo de Clientes do Supabase.');
     } finally {
       setIsLoadingSupabaseGrpClientes(false);
+
+    }
+  };
+
+
+  const fetchSupabaseSituacaoTrib = async (page: number, search: string, status: string) => {
+    if (!isSupabaseConfigured || !supabase) return;
+    setIsLoadingSupabaseSituacaoTrib(true);
+    setSupabaseSituacaoTribError(null);
+    try {
+      const from = (page - 1) * itemsPerPage;
+      const to = page * itemsPerPage - 1;
+      let query = supabase
+        .from('dim_situacao_trib')
+        .select('*', { count: 'exact' });
+
+      if (search.trim()) {
+        const searchStr = search.trim();
+        query = query.or(`resumido.ilike.%${searchStr}%,situacao.ilike.%${searchStr}%`);
+      }
+      
+      if (status === 'Ativo') {
+        query = query.eq('ativo', 'S');
+      } else if (status === 'Inativo') {
+        query = query.not('ativo', 'eq', 'S');
+      }
+
+      const { data, count, error } = await query
+        .order('resumido', { ascending: true })
+        .range(from, to);
+
+      if (error) throw error;
+
+      setSupabaseSituacaoTrib(data || []);
+      if (count !== null) setSupabaseSituacaoTribCount(count);
+    } catch (err: any) {
+      console.error('Error fetching Supabase dim_situacao_trib:', err);
+      setSupabaseSituacaoTribError(err.message || 'Erro ao carregar Situação Tributária do Supabase.');
+    } finally {
+      setIsLoadingSupabaseSituacaoTrib(false);
     }
   };
 
@@ -736,9 +828,26 @@ export default function CadastrosView({
     }
   };
 
+  const fetchAllSituacoesTrib = async () => {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('dim_situacao_trib')
+          .select('*')
+          .order('resumido', { ascending: true });
+        if (!error && data) {
+          setDbAllSituacoesTrib(data);
+        }
+      } catch (err) {
+        console.error('Error fetching all situacoes trib:', err);
+      }
+    }
+  };
+
   useEffect(() => {
     fetchAllGrpClientes();
     fetchAllGrpCargos();
+    fetchAllSituacoesTrib();
   }, [isSupabaseConfigured, activeTab]);
 
 
@@ -749,6 +858,10 @@ export default function CadastrosView({
   const activeGrpClientesList = useMemo(() => {
     return isSupabaseConfigured ? dbAllGrpClientes : []; // no local mock for this
   }, [isSupabaseConfigured, dbAllGrpClientes]);
+
+  const activeSituacoesTribList = useMemo(() => {
+    return isSupabaseConfigured ? dbAllSituacoesTrib : [];
+  }, [isSupabaseConfigured, dbAllSituacoesTrib]);
 
   const activeGrpCargosList = useMemo(() => {
     return isSupabaseConfigured ? dbAllGrpCargos : localGrpCargos;
@@ -812,31 +925,98 @@ export default function CadastrosView({
       } catch (e) {
         console.error('Failed fetching dim_grupo_cliente count: ', e);
       }
+
+      try {
+        const { count, error } = await supabase
+          .from('dim_tarefa')
+          .select('*', { count: 'exact', head: true });
+        if (!error && count !== null) {
+          setSupabaseTarefasCount(count);
+        }
+      } catch (e) {
+        console.error('Failed fetching dim_tarefa count: ', e);
+      }
     };
+
     fetchCountInitially();
   }, [activeTab]);
 
   // Fetch paginated data when active tab, page, search criteria, status or tipoPessoa moves
   useEffect(() => {
     if (activeTab === 'clientes' && isSupabaseConfigured) {
-      fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter);
+      fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter, sitTribFilter);
+    } else if (activeTab === 'situacao_trib' && isSupabaseConfigured) {
+      fetchSupabaseSituacaoTrib(currentPage, searchTerm, statusFilter);
     } else if (activeTab === 'grp_clientes' && isSupabaseConfigured) {
       fetchSupabaseGrpClientes(currentPage, searchTerm, statusFilter);
     } else if (activeTab === 'departamentos' && isSupabaseConfigured) {
       fetchSupabaseDepartamentos(currentPage, searchTerm, statusFilter);
     } else if (activeTab === 'grp_cargos' && isSupabaseConfigured) {
       fetchSupabaseGrpCargos(currentPage, searchTerm);
+    } else if (activeTab === 'tarefas' && isSupabaseConfigured) {
+      fetchSupabaseTarefas(currentPage, searchTerm);
     } else if (activeTab === 'colaboradores' && isSupabaseConfigured) {
       fetchSupabaseColaboradores(currentPage, searchTerm, relacionamentoFilter);
     }
-  }, [activeTab, currentPage, searchTerm, statusFilter, tipoPessoaFilter, relacionamentoFilter]);
+  }, [activeTab, currentPage, searchTerm, statusFilter, tipoPessoaFilter, sitTribFilter, relacionamentoFilter, grupoFuncaoFilter]);
 
   // Modals visibility toggles
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [editingInlineClientSitTribId, setEditingInlineClientSitTribId] = useState<string | null>(null);
+  const [editingInlineColabGrpCargoId, setEditingInlineColabGrpCargoId] = useState<string | null>(null);
   const [editingGrpClienteId, setEditingGrpClienteId] = useState<string | null>(null);
+  const [editingTarefaId, setEditingTarefaId] = useState<string | null>(null);
+
+  const handleInlineSitTribChange = async (clientId: string, newSitTribId: string) => {
+    if (!supabase) return;
+    try {
+      const valToSave = newSitTribId === 'null' || !newSitTribId ? null : newSitTribId;
+      const { error } = await supabase
+        .from('dim_cliente')
+        .update({ sit_trib_id: valToSave })
+        .eq('id', clientId);
+      
+      if (error) throw error;
+      
+      setSupabaseClients(prev => prev.map(c => c.id === clientId ? { ...c, sit_trib_id: valToSave } : c));
+    } catch (err) {
+      console.error('Error updating sit_trib_id', err);
+    } finally {
+      setEditingInlineClientSitTribId(null);
+    }
+  };
+
+const handleInlineGrpCargoChange = async (colaboradorId: string, newGrpCargoId: string) => {
+    if (!supabase) return;
+    try {
+      const valToSave = newGrpCargoId === 'null' || !newGrpCargoId ? null : parseInt(newGrpCargoId);
+      const { error } = await supabase
+        .from('dim_usuario')
+        .update({ grp_cargo_id: valToSave })
+        .eq('id', colaboradorId);
+      
+      if (error) throw error;
+      
+      const grp = supabaseGrpCargos.find(g => g.id === valToSave);
+      const grpName = grp ? grp.grp_crg_nome : null;
+      
+      setSupabaseColaboradores(prev => prev.map(c => c.dim_usuario_id === colaboradorId ? { ...c, grp_cargo_id: valToSave, grp_crg_nome: grpName } : c));
+    } catch (err) {
+      console.error('Error updating grp_cargo_id', err);
+    } finally {
+      setEditingInlineColabGrpCargoId(null);
+    }
+  };
 
   // New Record Forms Local States
+  // Situacao Tributaria Form
+  const [editingSitTribId, setEditingSitTribId] = useState<string | null>(null);
+  const [newSitTribResumido, setNewSitTribResumido] = useState('');
+  const [newSitTribSituacao, setNewSitTribSituacao] = useState('');
+  const [newSitTribAtivo, setNewSitTribAtivo] = useState<'S' | 'N'>('S');
+  const [newSitTribGrupo, setNewSitTribGrupo] = useState('');
+
   // Cliente Form
   const [newClientCodigo, setNewClientCodigo] = useState('');
   const [newClientDocumento, setNewClientDocumento] = useState('');
@@ -844,7 +1024,7 @@ export default function CadastrosView({
   const [newClientTipoPessoa, setNewClientTipoPessoa] = useState<'PF' | 'PJ' | ''>('');
   const [newClientAtivo, setNewClientAtivo] = useState<boolean>(true);
   const [newClientGrupoId, setNewClientGrupoId] = useState('');
-  const [newClientTipoTrib, setNewClientTipoTrib] = useState('');
+  const [newClientSitTribId, setNewClientSitTribId] = useState('');
   const [newClientDetalhes, setNewClientDetalhes] = useState('');
   const [newClientCliNome, setNewClientCliNome] = useState('');
 
@@ -1046,7 +1226,7 @@ export default function CadastrosView({
               tipo_pessoa: newClientTipoPessoa || null,
               ativo: newClientAtivo,
               grupo_id: newClientGrupoId || null,
-              tipo_trib: newClientTipoTrib.trim() || null,
+              sit_trib_id: newClientSitTribId || null,
               detalhes: newClientDetalhes.trim() || null,
               cli_nome: newClientCliNome.trim() || null
             })
@@ -1062,13 +1242,13 @@ export default function CadastrosView({
               tipo_pessoa: newClientTipoPessoa || null,
               ativo: newClientAtivo,
               grupo_id: newClientGrupoId || null,
-              tipo_trib: newClientTipoTrib.trim() || null,
+              sit_trib_id: newClientSitTribId || null,
               detalhes: newClientDetalhes.trim() || null,
               cli_nome: newClientCliNome.trim() || null
             });
           if (error) throw error;
         }
-        await fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter);
+        await fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter, sitTribFilter);
         
         try {
           const { count } = await supabase.from('dim_cliente').select('*', { count: 'exact', head: true });
@@ -1089,7 +1269,7 @@ export default function CadastrosView({
         tipo_pessoa: newClientTipoPessoa || null,
         ativo: newClientAtivo,
         grupo_id: newClientGrupoId || null,
-        tipo_trib: newClientTipoTrib.trim() || null,
+        sit_trib_id: newClientSitTribId || null,
         detalhes: newClientDetalhes.trim() || null,
         cli_nome: newClientCliNome.trim() || null
       };
@@ -1103,7 +1283,7 @@ export default function CadastrosView({
     setNewClientTipoPessoa('');
     setNewClientAtivo(true);
     setNewClientGrupoId('');
-    setNewClientTipoTrib('');
+    setNewClientSitTribId('');
     setNewClientDetalhes('');
     setNewClientCliNome('');
     setEditingClientId(null);
@@ -1122,7 +1302,7 @@ export default function CadastrosView({
 
           if (error) throw error;
 
-          await fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter);
+          await fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter, sitTribFilter);
 
           try {
             const { count } = await supabase.from('dim_cliente').select('*', { count: 'exact', head: true });
@@ -1136,6 +1316,92 @@ export default function CadastrosView({
         }
       } else {
         onRemoveCliente(id);
+      }
+    }
+  };
+
+  const handleCreateSituacaoTrib = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSitTribResumido.trim()) return;
+
+    if (isSupabaseConfigured && supabase) {
+      setIsLoadingSupabaseSituacaoTrib(true);
+      setSupabaseSituacaoTribError(null);
+      try {
+        if (editingSitTribId) {
+          const { error } = await supabase
+            .from('dim_situacao_trib')
+            .update({
+              resumido: newSitTribResumido.trim() || null,
+              situacao: newSitTribSituacao.trim() || null,
+              ativo: newSitTribAtivo,
+              grupo: newSitTribGrupo.trim() || null
+            })
+            .eq('id', editingSitTribId);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('dim_situacao_trib')
+            .insert({
+              resumido: newSitTribResumido.trim() || null,
+              situacao: newSitTribSituacao.trim() || null,
+              ativo: newSitTribAtivo,
+              grupo: newSitTribGrupo.trim() || null
+            });
+          if (error) throw error;
+        }
+
+        await fetchSupabaseSituacaoTrib(currentPage, searchTerm, statusFilter);
+        fetchAllSituacoesTrib(); // Update global list
+
+        try {
+          const { count } = await supabase
+            .from('dim_situacao_trib')
+            .select('*', { count: 'exact', head: true });
+          if (count !== null) setSupabaseSituacaoTribCount(count);
+        } catch (cntErr) {}
+
+        setNewSitTribResumido('');
+        setNewSitTribSituacao('');
+        setNewSitTribAtivo('S');
+        setNewSitTribGrupo('');
+        setEditingSitTribId(null);
+        setShowAddModal(false);
+      } catch (err: any) {
+        console.error('Error saving situacao_trib:', err);
+        alert(err.message || 'Erro ao salvar Situação Tributária.');
+      } finally {
+        setIsLoadingSupabaseSituacaoTrib(false);
+      }
+    }
+  };
+
+  const handleRemoveSituacaoTrib = async (id: string, name: string) => {
+    if (confirm(`Tem certeza que deseja excluir a situação "${name}"?`)) {
+      if (isSupabaseConfigured && supabase) {
+        setIsLoadingSupabaseSituacaoTrib(true);
+        setSupabaseSituacaoTribError(null);
+        try {
+          const { error } = await supabase
+            .from('dim_situacao_trib')
+            .delete()
+            .eq('id', id);
+
+          if (error) throw error;
+
+          await fetchSupabaseSituacaoTrib(currentPage, searchTerm, statusFilter);
+          fetchAllSituacoesTrib();
+
+          try {
+            const { count } = await supabase.from('dim_situacao_trib').select('*', { count: 'exact', head: true });
+            if (count !== null) setSupabaseSituacaoTribCount(count);
+          } catch (cntErr) {}
+        } catch (err: any) {
+          console.error('Error removing situacao_trib:', err);
+          alert(err.message || 'Erro ao remover Situação Tributária.');
+        } finally {
+          setIsLoadingSupabaseSituacaoTrib(false);
+        }
       }
     }
   };
@@ -1190,6 +1456,7 @@ export default function CadastrosView({
         setSupabaseGrpClientesError(err.message || 'Erro ao salvar Grupo de Cliente no Supabase.');
       } finally {
         setIsLoadingSupabaseGrpClientes(false);
+
       }
     } else {
       const newG = {
@@ -1242,6 +1509,7 @@ export default function CadastrosView({
           setSupabaseGrpClientesError(err.message || 'Erro ao remover Grupo de Cliente.');
         } finally {
           setIsLoadingSupabaseGrpClientes(false);
+
         }
       } else {
         setLocalGrpClientes(prev => prev.filter(g => g.id !== id));
@@ -1414,33 +1682,82 @@ export default function CadastrosView({
     }
   };
 
-  const handleCreateTarefa = (e: React.FormEvent) => {
+  const handleCreateTarefa = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTaskTitulo.trim()) return;
 
-    // Use selected employee or fallback to first or dummy
-    const colabId = newTaskColabId || (activeColaboradoresList[0]?.id || 'col1');
+    if (isSupabaseConfigured && supabase) {
+      setIsLoadingSupabaseTarefas(true);
+      try {
+        if (editingTarefaId) {
+          const { error } = await supabase.from('dim_tarefa').update({
+            nome: newTaskTitulo.trim()
+          }).eq('id', editingTarefaId);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('dim_tarefa').insert([{
+            nome: newTaskTitulo.trim()
+          }]);
+          if (error) throw error;
+        }
+        
+        // Refresh list
+        fetchSupabaseTarefas(currentPage, searchTerm);
+        
+        // Update count
+        const { count } = await supabase.from('dim_tarefa').select('*', { count: 'exact', head: true });
+        if (count !== null) setSupabaseTarefasCount(count);
 
-    const newT: Tarefa = {
-      id: 't_' + Math.random().toString(36).substr(2, 9),
-      titulo: newTaskTitulo.trim(),
-      descricao: newTaskDesc.trim() || 'Nenhuma descrição fornecida.',
-      colaboradorId: colabId,
-      prazo: newTaskPrazo || new Date().toISOString().split('T')[0],
-      prioridade: newTaskPrioridade,
-      status: newTaskStatus
-    };
+        setNewTaskTitulo('');
+        setEditingTarefaId(null);
+        setShowAddModal(false);
+      } catch (err: any) {
+        console.error('Error saving dim_tarefa:', err);
+        setSupabaseTarefasError(err.message || 'Erro ao salvar tarefa no banco.');
+      } finally {
+        setIsLoadingSupabaseTarefas(false);
+      }
+    } else {
+      // Fallback local logic...
+      // not fully handling edit for local as instructions focus on db
+      const colabId = newTaskColabId || (activeColaboradoresList[0]?.id || 'col1');
+      const newT = {
+        id: editingTarefaId || ('t_' + Math.random().toString(36).substr(2, 9)),
+        titulo: newTaskTitulo.trim(),
+        descricao: newTaskDesc.trim() || 'Nenhuma descrição fornecida.',
+        colaboradorId: colabId,
+        prazo: newTaskPrazo || new Date().toISOString().split('T')[0],
+        prioridade: newTaskPrioridade,
+        status: newTaskStatus
+      };
+      onAddTarefa(newT as any);
+      setNewTaskTitulo('');
+      setNewTaskDesc('');
+      setNewTaskColabId('');
+      setNewTaskPrazo('');
+      setNewTaskPrioridade('Média');
+      setNewTaskStatus('Pendente');
+      setEditingTarefaId(null);
+      setShowAddModal(false);
+    }
+  };
 
-    onAddTarefa(newT);
-
-    // Reset Form
-    setNewTaskTitulo('');
-    setNewTaskDesc('');
-    setNewTaskColabId('');
-    setNewTaskPrazo('');
-    setNewTaskPrioridade('Média');
-    setNewTaskStatus('Pendente');
-    setShowAddModal(false);
+  const handleDeleteTarefaSupabase = async (id: string) => {
+    if (!isSupabaseConfigured || !supabase) return;
+    if (!confirm('Deseja realmente remover esta tarefa?')) return;
+    setIsLoadingSupabaseTarefas(true);
+    try {
+      const { error } = await supabase.from('dim_tarefa').delete().eq('id', id);
+      if (error) throw error;
+      fetchSupabaseTarefas(currentPage, searchTerm);
+      const { count } = await supabase.from('dim_tarefa').select('*', { count: 'exact', head: true });
+      if (count !== null) setSupabaseTarefasCount(count);
+    } catch (err: any) {
+      console.error('Error deleting dim_tarefa:', err);
+      setSupabaseTarefasError(err.message || 'Erro ao remover tarefa do banco.');
+    } finally {
+      setIsLoadingSupabaseTarefas(false);
+    }
   };
 
   // Memorized Filtered Lists
@@ -1478,9 +1795,10 @@ export default function CadastrosView({
       const matchRel = relacionamentoFilter === 'Todos' || 
                        (relacionamentoFilter === 'Relacionados' && isRel) ||
                        (relacionamentoFilter === 'NaoRelacionados' && !isRel);
-      return matchSearch && matchRel;
+      const matchGrp = grupoFuncaoFilter === 'Todos';
+      return matchSearch && matchRel && matchGrp;
     });
-  }, [colaboradores, searchTerm, relacionamentoFilter]);
+  }, [colaboradores, searchTerm, relacionamentoFilter, grupoFuncaoFilter]);
 
   const filteredTarefas = useMemo(() => {
     return tarefas.filter(t => {
@@ -1516,6 +1834,9 @@ export default function CadastrosView({
     if (activeTab === 'clientes') {
       return isSupabaseConfigured ? (supabaseClientsCount !== null ? supabaseClientsCount : 0) : filteredClientes.length;
     }
+    if (activeTab === 'situacao_trib') {
+      return isSupabaseConfigured ? (supabaseSituacaoTribCount !== null ? supabaseSituacaoTribCount : 0) : activeSituacoesTribList.length;
+    }
     if (activeTab === 'grp_clientes') {
       return isSupabaseConfigured ? (supabaseGrpClientesCount !== null ? supabaseGrpClientesCount : 0) : filteredGrpClientes.length;
     }
@@ -1528,17 +1849,21 @@ export default function CadastrosView({
     if (activeTab === 'colaboradores') {
       return isSupabaseConfigured ? (supabaseColaboradoresCount !== null ? supabaseColaboradoresCount : 0) : filteredColaboradores.length;
     }
+    if (activeTab === 'tarefas') {
+      return isSupabaseConfigured ? (supabaseTarefasCount !== null ? supabaseTarefasCount : 0) : filteredTarefas.length;
+    }
     return 0;
-  }, [activeTab, isSupabaseConfigured, supabaseClientsCount, supabaseGrpClientesCount, supabaseDepartamentosCount, supabaseGrpCargosCount, supabaseColaboradoresCount, filteredClientes.length, filteredGrpClientes.length, filteredDepartamentos.length, filteredGrpCargos.length, filteredColaboradores.length]);
+  }, [activeTab, isSupabaseConfigured, supabaseClientsCount, supabaseGrpClientesCount, supabaseSituacaoTribCount, activeSituacoesTribList.length, supabaseDepartamentosCount, supabaseGrpCargosCount, supabaseColaboradoresCount, supabaseTarefasCount, filteredClientes.length, filteredGrpClientes.length, filteredDepartamentos.length, filteredGrpCargos.length, filteredColaboradores.length, filteredTarefas.length]);
 
   const isTabLoading = useMemo(() => {
     if (activeTab === 'clientes') return isLoadingSupabase;
+    if (activeTab === 'situacao_trib') return isLoadingSupabaseSituacaoTrib;
     if (activeTab === 'grp_clientes') return isLoadingSupabaseGrpClientes;
     if (activeTab === 'departamentos') return isLoadingSupabaseDepts;
     if (activeTab === 'grp_cargos') return isLoadingSupabaseGrpCargos;
     if (activeTab === 'colaboradores') return isLoadingSupabaseColabs;
     return false;
-  }, [activeTab, isLoadingSupabase, isLoadingSupabaseDepts, isLoadingSupabaseGrpCargos, isLoadingSupabaseColabs]);
+  }, [activeTab, isLoadingSupabase, isLoadingSupabaseGrpClientes, isLoadingSupabaseSituacaoTrib, isLoadingSupabaseDepts, isLoadingSupabaseGrpCargos, isLoadingSupabaseColabs]);
 
   const startRange = useMemo(() => {
     if (totalCount === 0) return 0;
@@ -1586,8 +1911,12 @@ export default function CadastrosView({
               if (activeTab === 'colaboradores' && departamentos.length > 0) {
                 setNewColabDeptId(departamentos[0].id);
               }
-              if (activeTab === 'tarefas' && activeColaboradoresList.length > 0) {
-                setNewTaskColabId(activeColaboradoresList[0].id);
+              if (activeTab === 'tarefas') {
+                setEditingTarefaId(null);
+                setNewTaskTitulo('');
+                if (activeColaboradoresList.length > 0) {
+                  setNewTaskColabId(activeColaboradoresList[0].id);
+                }
               }
               if (activeTab === 'clientes') {
                 setEditingClientId(null);
@@ -1597,7 +1926,7 @@ export default function CadastrosView({
                 setNewClientTipoPessoa('');
                 setNewClientAtivo(true);
                 setNewClientGrupoId('');
-                setNewClientTipoTrib('');
+                setNewClientSitTribId('');
                 setNewClientDetalhes('');
                 setNewClientCliNome('');
               }
@@ -1608,6 +1937,7 @@ export default function CadastrosView({
             <Plus size={16} />
             {activeTab === 'clientes' && 'Novo Cliente'}
             {activeTab === 'grp_clientes' && 'Novo Grupo de Clientes'}
+            {activeTab === 'situacao_trib' && 'Nova Sit. Trib.'}
             {activeTab === 'departamentos' && 'Novo Departamento'}
             {activeTab === 'grp_cargos' && 'Novo Grupo de Funções'}
             {activeTab === 'colaboradores' && 'Novo Colaborador'}
@@ -1661,6 +1991,25 @@ export default function CadastrosView({
               </div>
               <span className="text-[10px] bg-brand-bg px-2 py-0.5 rounded text-brand-text-muted/60 font-mono">
                 {isSupabaseConfigured && supabaseGrpClientesCount !== null ? supabaseGrpClientesCount : localGrpClientes.length}
+              </span>
+            </button>
+
+            
+            {/* Situação Tributária trigger button */}
+            <button
+              onClick={() => handleTabSelection('situacao_trib')}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded text-left transition-all ${
+                activeTab === 'situacao_trib'
+                  ? 'bg-brand-card-bright text-brand-primary border-l-4 border-brand-accent font-bold'
+                  : 'text-brand-text-muted hover:bg-brand-card-light hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 text-xs font-bold tracking-wide">
+                <Layers size={15} className={activeTab === 'situacao_trib' ? 'text-brand-primary' : 'text-brand-text-muted/50'} />
+                <span>Situação Tributária</span>
+              </div>
+              <span className="text-[10px] bg-brand-bg px-2 py-0.5 rounded text-brand-text-muted/60 font-mono">
+                {isSupabaseConfigured && supabaseSituacaoTribCount !== null ? supabaseSituacaoTribCount : activeSituacoesTribList.length}
               </span>
             </button>
 
@@ -1732,7 +2081,7 @@ export default function CadastrosView({
                 <span>Tarefas Operacionais</span>
               </div>
               <span className="text-[10px] bg-brand-bg px-2 py-0.5 rounded text-brand-text-muted/60 font-mono">
-                {tarefas.length}
+                {isSupabaseConfigured && supabaseTarefasCount !== null ? supabaseTarefasCount : tarefas.length}
               </span>
             </button>
           </nav>
@@ -1748,12 +2097,14 @@ export default function CadastrosView({
               <h3 className="text-xl font-extrabold text-white flex items-center gap-2">
                 {activeTab === 'clientes' && <Building2 className="text-brand-primary" />}
                 {activeTab === 'grp_clientes' && <Users className="text-brand-primary" />}
+                {activeTab === 'situacao_trib' && <Layers className="text-brand-primary" />}
                 {activeTab === 'departamentos' && <Layers className="text-brand-primary" />}
                 {activeTab === 'colaboradores' && <Users className="text-brand-primary" />}
                 {activeTab === 'tarefas' && <CheckSquare className="text-brand-primary" />}
                 
                 {activeTab === 'clientes' && 'Cadastro de Clientes'}
                 {activeTab === 'grp_clientes' && 'Grupo de Clientes'}
+                {activeTab === 'situacao_trib' && 'Situações Tributárias'}
                 {activeTab === 'departamentos' && 'Cadastro de Departamentos'}
                 {activeTab === 'colaboradores' && 'Cadastro de Colaboradores'}
                 {activeTab === 'tarefas' && 'Gestão de Tarefas'}
@@ -1761,6 +2112,7 @@ export default function CadastrosView({
               <p className="text-xs text-brand-text-muted/80 mt-1">
                 {activeTab === 'clientes' && 'Contatos corporativos de faturamentos ativos de sinaleiras e prazos base.'}
                 {activeTab === 'grp_clientes' && 'Agrupamento e hierarquia de clientes.'}
+                {activeTab === 'situacao_trib' && 'Classificações de tributação.'}
                 {activeTab === 'departamentos' && 'Sectores empresariais mapeados por contas globais e custos operacionais.'}
                 {activeTab === 'colaboradores' && 'Profissionais controladoria vinculados à gerência e execução de tarefas.'}
                 {activeTab === 'tarefas' && 'Controle administrativo geral e lista de pendências contratuais.'}
@@ -1777,6 +2129,7 @@ export default function CadastrosView({
                 placeholder={
                   activeTab === 'clientes' ? "Nome, CNPJ ou Setor..." :
                   activeTab === 'grp_clientes' ? "Pesquisar por nome..." :
+                  activeTab === 'situacao_trib' ? "Pesquisar por resumo ou situação..." :
                   activeTab === 'departamentos' ? "Nome, Código ou Gestor..." :
                   activeTab === 'colaboradores' ? "Pesquisar nome, e-mail, cargo..." : 
                   "Título ou descrição..."
@@ -1794,38 +2147,75 @@ export default function CadastrosView({
             {activeTab !== 'tarefas' ? (
               <div className="flex flex-wrap items-center gap-3 shrink-0">
                 {activeTab === 'clientes' && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] text-brand-text-muted uppercase font-bold">Tipo:</span>
-                    <select
-                      value={tipoPessoaFilter}
-                      onChange={(e) => {
-                        setTipoPessoaFilter(e.target.value as any);
-                        setCurrentPage(1);
-                      }}
-                      className="bg-brand-card text-brand-text border border-brand-border text-xs rounded py-1 px-2.5 focus:border-brand-primary outline-none cursor-pointer"
-                    >
-                      <option value="Todos">Todos os Tipos</option>
-                      <option value="PF">Pessoa Física (PF)</option>
-                      <option value="PJ">Pessoa Jurídica (PJ)</option>
-                    </select>
-                  </div>
+                  <>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-brand-text-muted uppercase font-bold">Tipo:</span>
+                      <select
+                        value={tipoPessoaFilter}
+                        onChange={(e) => {
+                          setTipoPessoaFilter(e.target.value as any);
+                          setCurrentPage(1);
+                        }}
+                        className="bg-brand-card text-brand-text border border-brand-border text-xs rounded py-1 px-2.5 focus:border-brand-primary outline-none cursor-pointer"
+                      >
+                        <option value="Todos">Todos os Tipos</option>
+                        <option value="PF">Pessoa Física (PF)</option>
+                        <option value="PJ">Pessoa Jurídica (PJ)</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-brand-text-muted uppercase font-bold">Sit. Trib.:</span>
+                      <select
+                        value={sitTribFilter}
+                        onChange={(e) => {
+                          setSitTribFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="bg-brand-card text-brand-text border border-brand-border text-xs rounded py-1 px-2.5 focus:border-brand-primary outline-none cursor-pointer w-32 truncate"
+                      >
+                        <option value="Todos">Todas as Situações</option>
+                        <option value="SemSituacao">Sem Situação</option>
+                        {activeSituacoesTribList.map(s => (
+                          <option key={s.id} value={s.id}>{s.situacao || s.id}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
                 )}
 
                 {activeTab === 'colaboradores' ? (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] text-brand-text-muted uppercase font-bold">Relacionamento:</span>
-                    <select
-                      value={relacionamentoFilter}
-                      onChange={(e) => {
-                        setRelacionamentoFilter(e.target.value as any);
-                        setCurrentPage(1);
-                      }}
-                      className="bg-brand-card text-brand-text border border-brand-border text-xs rounded py-1 px-2.5 focus:border-brand-primary outline-none cursor-pointer font-bold text-brand-primary"
-                    >
-                      <option value="Todos">Todos</option>
-                      <option value="Relacionados">Relacionados</option>
-                      <option value="NaoRelacionados">Não Relacionados</option>
-                    </select>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-brand-text-muted uppercase font-bold">Grupo:</span>
+                      <select
+                        value={grupoFuncaoFilter}
+                        onChange={(e) => {
+                          setGrupoFuncaoFilter(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        className="bg-brand-card text-brand-text border border-brand-border text-xs rounded py-1 px-2.5 focus:border-brand-primary outline-none cursor-pointer font-bold text-brand-primary max-w-[150px]"
+                      >
+                        <option value="Todos">Todos</option>
+                        {activeGrpCargosList.map(g => (
+                          <option key={g.id} value={g.grp_crg_nome}>{g.grp_crg_nome}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-brand-text-muted uppercase font-bold">Relacionamento:</span>
+                      <select
+                        value={relacionamentoFilter}
+                        onChange={(e) => {
+                          setRelacionamentoFilter(e.target.value as any);
+                          setCurrentPage(1);
+                        }}
+                        className="bg-brand-card text-brand-text border border-brand-border text-xs rounded py-1 px-2.5 focus:border-brand-primary outline-none cursor-pointer font-bold text-brand-primary"
+                      >
+                        <option value="Todos">Todos</option>
+                        <option value="Relacionados">Relacionados</option>
+                        <option value="NaoRelacionados">Não Relacionados</option>
+                      </select>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 shrink-0">
@@ -1903,7 +2293,7 @@ export default function CadastrosView({
                       <h4 className="font-bold text-white uppercase tracking-wider font-extrabold">Erro de Conexão Supabase</h4>
                       <p>{supabaseError}</p>
                       <button
-                        onClick={() => fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter)}
+                        onClick={() => fetchSupabaseClients(currentPage, searchTerm, statusFilter, tipoPessoaFilter, sitTribFilter)}
                         className="mt-2 flex items-center gap-1 text-[10px] uppercase tracking-wider bg-rose-500/20 hover:bg-rose-500/30 font-bold px-2.5 py-1 rounded text-white transition-all cursor-pointer"
                       >
                         <RefreshCw size={10} className="animate-spin-slow" />
@@ -1978,7 +2368,7 @@ export default function CadastrosView({
                                     setNewClientTipoPessoa(c.tipo_pessoa || localTipo);
                                     setNewClientAtivo(c.ativo !== false);
                                     setNewClientGrupoId(c.grupo_id || '');
-                                    setNewClientTipoTrib(c.tipo_trib || '');
+                                    setNewClientSitTribId(c.sit_trib_id || '');
                                     setNewClientDetalhes(c.detalhes || '');
                                     setNewClientCliNome(c.cli_nome || '');
                                     setShowAddModal(true);
@@ -2043,6 +2433,30 @@ export default function CadastrosView({
                                       GRP: {c.dim_grupo_cliente.nome}
                                     </span>
                                   )}
+                                  {editingInlineClientSitTribId === c.id ? (
+                                    <select
+                                      autoFocus
+                                      className="font-mono text-[9px] font-extrabold bg-indigo-500/10 text-indigo-400 px-1 py-0.5 rounded border border-indigo-500/50 outline-none cursor-pointer w-24 truncate"
+                                      value={c.sit_trib_id || 'null'}
+                                      onChange={(e) => handleInlineSitTribChange(c.id, e.target.value)}
+                                      onBlur={() => setEditingInlineClientSitTribId(null)}
+                                    >
+                                      <option value="null">Sem Sit.</option>
+                                      {activeSituacoesTribList.map(s => (
+                                        <option key={s.id} value={s.id}>{s.situacao || s.id}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span 
+                                      onClick={() => setEditingInlineClientSitTribId(c.id)}
+                                      className="font-mono text-[9px] font-extrabold bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded border border-indigo-500/20 cursor-pointer hover:bg-indigo-500/20 transition-colors"
+                                      title="Clique para alterar a Situação Tributária"
+                                    >
+                                      TRIB: {c.sit_trib_id && activeSituacoesTribList.find(s => s.id === c.sit_trib_id) 
+                                        ? activeSituacoesTribList.find(s => s.id === c.sit_trib_id)?.situacao 
+                                        : 'Sem Sit.'}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="shrink-0">
                                   {c.ativo ? (
@@ -2068,7 +2482,7 @@ export default function CadastrosView({
                                     setNewClientTipoPessoa(c.tipo_pessoa || '');
                                     setNewClientAtivo(c.ativo !== false);
                                     setNewClientGrupoId(c.grupo_id || '');
-                                    setNewClientTipoTrib(c.tipo_trib || '');
+                                    setNewClientSitTribId(c.sit_trib_id || '');
                                     setNewClientDetalhes(c.detalhes || '');
                                     setNewClientCliNome(c.cli_nome || '');
                                     setShowAddModal(true);
@@ -2087,6 +2501,109 @@ export default function CadastrosView({
                           </tr>
                         ))
                       )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            
+            {/* 1.6. Situação Tributária Table */}
+            {activeTab === 'situacao_trib' && (
+              <div className="space-y-4">
+                {isSupabaseConfigured && supabaseSituacaoTribError && (
+                  <div className="mb-4 bg-rose-500/10 border border-rose-500/25 p-4 rounded-lg text-rose-200 text-xs flex items-center gap-3">
+                    <AlertTriangle size={18} className="text-rose-400 shrink-0" />
+                    <div>
+                      <p className="font-bold uppercase tracking-wider text-white">Falha ao Ler Supabase (dim_situacao_trib)</p>
+                      <p className="mt-1">{supabaseSituacaoTribError}</p>
+                    </div>
+                  </div>
+                )}
+                <table className="w-full text-left text-xs text-brand-text">
+                  <thead className="text-[10px] uppercase text-brand-text-muted bg-brand-bg/60 border-y border-brand-border/40 font-bold tracking-wider">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Resumo</th>
+                      <th className="px-4 py-3 font-semibold">Situação / Descrição</th>
+                      <th className="px-4 py-3 font-semibold">Grupo</th>
+                      <th className="px-4 py-3 font-semibold">Status</th>
+                      <th className="px-4 py-3 text-right font-semibold">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-brand-border/30">
+                    {isSupabaseConfigured ? (
+                      isLoadingSupabaseSituacaoTrib ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-brand-text-muted">
+                            <RefreshCw className="animate-spin mx-auto mb-2 text-brand-primary" size={20} />
+                            <span className="text-xs">Carregando Situações Tributárias...</span>
+                          </td>
+                        </tr>
+                      ) : supabaseSituacaoTrib.length > 0 ? (
+                        supabaseSituacaoTrib.map(s => (
+                          <tr key={s.id} className="hover:bg-brand-card-light/20 transition-colors group">
+                            <td className="px-4 py-3.5">
+                              <span className="font-mono bg-brand-primary/10 text-brand-primary border border-brand-primary/20 px-2 py-0.5 rounded text-[10px] font-extrabold">{s.resumido || "-"}</span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="font-bold text-white text-[12px]">{s.situacao || "-"}</div>
+                            </td>
+                            <td className="px-4 py-3.5 text-brand-text-muted font-mono text-[10px]">
+                              {s.grupo || "-"}
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
+                                s.ativo === "S" || s.ativo === "ATIVO" 
+                                   ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
+                                   : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                              }`}>
+                                {s.ativo === "S" || s.ativo === "ATIVO" ? "ATIVO" : "INATIVO"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5 text-right space-x-2">
+                              <button 
+                                className="text-brand-text-muted hover:text-brand-primary p-1.5 rounded hover:bg-brand-primary/10 transition-colors"
+                                onClick={() => {
+                                  setEditingSitTribId(s.id);
+                                  setNewSitTribResumido(s.resumido || "");
+                                  setNewSitTribSituacao(s.situacao || "");
+                                  setNewSitTribAtivo(s.ativo || "S");
+                                  setNewSitTribGrupo(s.grupo || "");
+                                  setShowAddModal(true);
+                                }}
+                                title="Editar"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button 
+                                className="text-brand-text-muted hover:text-rose-400 p-1.5 rounded hover:bg-rose-500/10 transition-colors"
+                                onClick={() => handleRemoveSituacaoTrib(s.id, s.situacao)}
+                                title="Excluir"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-brand-text-muted">
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                              <Database size={24} className="text-brand-text-muted/40" />
+                              <span>Nenhuma Situação Tributária encontrada.</span>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-brand-text-muted">
+                          <div className="flex flex-col items-center justify-center space-y-2">
+                            <Database size={24} className="text-brand-text-muted/40" />
+                            <span>Conecte o Supabase para visualizar.</span>
+                          </div>
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
@@ -2450,7 +2967,7 @@ export default function CadastrosView({
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={6} className="px-4 py-8 text-center text-brand-text-muted">
+                            <td colSpan={5} className="px-4 py-8 text-center text-brand-text-muted">
                               <div className="flex flex-col items-center justify-center space-y-2">
                                 <AlertCircle size={24} className="text-brand-text-muted/40" />
                                 <span>Nenhum departamento cadastrado no Supabase.</span>
@@ -2499,7 +3016,7 @@ export default function CadastrosView({
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={6} className="px-4 py-8 text-center text-brand-text-muted">
+                            <td colSpan={5} className="px-4 py-8 text-center text-brand-text-muted">
                               <div className="flex flex-col items-center justify-center space-y-2">
                                 <AlertCircle size={24} className="text-brand-text-muted/40" />
                                 <span>Nenhum departamento correspondente aos filtros.</span>
@@ -2527,17 +3044,7 @@ export default function CadastrosView({
                   </div>
                 )}
                 
-                {isSupabaseConfigured && (
-                  <div className="bg-brand-primary/5 border border-brand-primary/10 p-4 rounded-lg flex items-start gap-3 mb-4">
-                    <UserCheck size={18} className="shrink-0 mt-0.5 text-brand-primary" />
-                    <div className="space-y-1 text-xs leading-relaxed text-brand-text-muted">
-                      <h4 className="font-bold text-white uppercase tracking-wider">Mapeamento de Usuários de Apontamento para o RH</h4>
-                      <p>
-                        Para garantir que o cálculo de rentabilidade, horas de trabalho e custos do RH funcionem corretamente na Gestão Operacional, certifique-se de que cada Usuário está <strong>VINCULADO</strong> ao seu respectivo cadastro no RH (<code className="bg-black/30 font-mono px-1 rounded text-white font-semibold">rh_colaborador</code>).
-                      </p>
-                    </div>
-                  </div>
-                )}
+                
 
                 <div className="overflow-x-auto rounded border border-brand-border/40">
                   <table className="w-full text-left text-xs">
@@ -2545,6 +3052,7 @@ export default function CadastrosView({
                       <tr>
                         <th className="px-4 py-3 font-semibold">Nome / ID</th>
                         <th className="px-4 py-3 font-semibold">Cargo / Função</th>
+                        <th className="px-4 py-3 font-semibold">Grupo de Função</th>
                         <th className="px-4 py-3 font-semibold">Situação</th>
                         <th className="px-4 py-3 font-semibold text-right">Ações</th>
                       </tr>
@@ -2575,8 +3083,32 @@ export default function CadastrosView({
                                 </td>
                                 <td className="px-4 py-3.5 text-brand-text-muted">
                                   <span className="bg-brand-bg px-2 py-1 rounded text-[11px] font-bold text-white border border-brand-border/40">
-                                    {item.crg_nome || item.grp_crg_nome || 'Sem Cargo'}
+                                    {item.crg_nome || 'Sem Cargo'}
                                   </span>
+                                </td>
+                                <td className="px-4 py-3.5 text-brand-text-muted">
+                                  {editingInlineColabGrpCargoId === item.dim_usuario_id ? (
+                                    <select
+                                      autoFocus
+                                      className="font-mono text-[9px] font-extrabold bg-indigo-500/10 text-indigo-400 px-1 py-0.5 rounded border border-indigo-500/50 outline-none cursor-pointer w-24 truncate"
+                                      value={item.grp_cargo_id || 'null'}
+                                      onChange={(e) => handleInlineGrpCargoChange(item.dim_usuario_id, e.target.value)}
+                                      onBlur={() => setEditingInlineColabGrpCargoId(null)}
+                                    >
+                                      <option value="null">Sem Grupo</option>
+                                      {activeGrpCargosList.map(g => (
+                                        <option key={g.id} value={g.id}>{g.grp_crg_nome}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span 
+                                      onClick={() => setEditingInlineColabGrpCargoId(item.dim_usuario_id)}
+                                      className="bg-brand-bg px-2 py-1 rounded text-[11px] font-bold text-brand-accent border border-brand-accent/30 cursor-pointer hover:bg-brand-accent/10 transition-colors"
+                                      title="Clique para alterar o Grupo de Função"
+                                    >
+                                      {item.grp_crg_nome || 'Sem Grupo'}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3.5">
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
@@ -2635,7 +3167,7 @@ export default function CadastrosView({
                           })
                         ) : (
                           <tr>
-                            <td colSpan={7} className="px-4 py-8 text-center text-brand-text-muted">
+                            <td colSpan={5} className="px-4 py-8 text-center text-brand-text-muted">
                               <div className="flex flex-col items-center justify-center space-y-2">
                                 <AlertCircle size={24} className="text-brand-text-muted/40" />
                                 <span>Nenhum colaborador cadastrado no Supabase.</span>
@@ -2721,84 +3253,92 @@ export default function CadastrosView({
               </div>
             )}
 
-            {/* 6. Tarefas Table */}
+{/* 6. Tarefas Table */}
             {activeTab === 'tarefas' && (
               <div className="overflow-x-auto rounded border border-brand-border/40">
                 <table className="w-full text-left text-xs whitespace-nowrap">
                   <thead className="bg-brand-card-light/50 text-brand-text-muted/60 uppercase tracking-widest text-[10px]">
                     <tr>
-                      <th className="px-4 py-3 font-semibold">Tarefa / Descrição</th>
-                      <th className="px-4 py-3 font-semibold">Responsável</th>
-                      <th className="px-4 py-3 font-semibold">Prazo de Entrega</th>
-                      <th className="px-4 py-3 font-semibold">Prioridade</th>
-                      <th className="px-4 py-3 font-semibold">Estado de Execução</th>
+                      <th className="px-4 py-3 font-semibold">Nome da Tarefa</th>
                       <th className="px-4 py-3 font-semibold text-right">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-brand-border/30">
-                    {filteredTarefas.length > 0 ? (
-                      filteredTarefas.map(t => {
-                        const assignedColab = activeColaboradoresList.find(c => c.id === t.colaboradorId);
-                        return (
-                          <tr key={t.id} className="hover:bg-brand-card-light/20 transition-colors group">
-                            <td className="px-4 py-3.5 max-w-xs">
-                              <div className="font-bold text-white text-[13px]">{t.titulo}</div>
-                              <div className="text-[10px] text-brand-text-muted/70 mt-0.5 truncate" title={t.descricao}>
-                                {t.descricao}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3.5 font-bold text-white">
-                              {assignedColab ? assignedColab.nome : 'Sem Responsável'}
-                            </td>
-                            <td className="px-4 py-3.5 font-mono text-brand-text-muted">
-                              {t.prazo}
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
-                                t.prioridade === 'Alta' 
-                                  ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
-                                  : t.prioridade === 'Média'
-                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                    : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              }`}>
-                                {t.prioridade?.toUpperCase()}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
+                    {isLoadingSupabaseTarefas ? (
+                      <tr>
+                        <td colSpan={2} className="px-4 py-8 text-center text-brand-text-muted">
+                          Carregando tarefas do banco de dados...
+                        </td>
+                      </tr>
+                    ) : isSupabaseConfigured && supabaseTarefas.length > 0 ? (
+                      supabaseTarefas.map(t => (
+                        <tr key={t.id} className="hover:bg-brand-card-light/20 transition-colors group">
+                          <td className="px-4 py-3.5 max-w-xs">
+                            <div className="font-bold text-white text-[13px]">{t.nome}</div>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
-                                type="button"
-                                onClick={() => onToggleTarefaStatus(t.id)}
-                                className={`px-2.5 py-1 rounded text-[10px] font-bold tracking-wider cursor-pointer border hover:opacity-85 transition-all flex items-center gap-1.5 ${
-                                  t.status === 'Concluída' 
-                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                                    : t.status === 'Em Andamento'
-                                      ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                                      : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
-                                }`}
+                                onClick={() => {
+                                  setEditingTarefaId(t.id);
+                                  setNewTaskTitulo(t.nome || '');
+                                  setShowAddModal(true);
+                                }}
+                                className="p-1.5 text-brand-text-muted hover:text-brand-primary hover:bg-brand-card-light rounded transition-colors"
+                                title="Editar"
                               >
-                                {t.status === 'Concluída' && <Check size={10} />}
-                                {t.status?.toUpperCase()}
+                                <Edit2 size={14} />
                               </button>
-                            </td>
-                            <td className="px-4 py-3.5 text-right">
-                              <button 
-                                className="text-brand-text-muted hover:text-rose-400 p-1.5 rounded hover:bg-rose-500/10 transition-colors cursor-pointer"
-                                onClick={() => onRemoveTarefa(t.id)}
-                                title="Excluir"
+                              <button
+                                onClick={() => handleDeleteTarefaSupabase(t.id)}
+                                className="p-1.5 text-brand-text-muted hover:text-red-400 hover:bg-brand-card-light rounded transition-colors"
+                                title="Remover"
                               >
                                 <Trash2 size={14} />
                               </button>
-                            </td>
-                          </tr>
-                        );
-                      })
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : !isSupabaseConfigured && filteredTarefas.length > 0 ? (
+                      filteredTarefas.map(t => (
+                        <tr key={t.id} className="hover:bg-brand-card-light/20 transition-colors group">
+                          <td className="px-4 py-3.5 max-w-xs">
+                            <div className="font-bold text-white text-[13px]">{t.titulo}</div>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => {
+                                  setEditingTarefaId(t.id);
+                                  setNewTaskTitulo(t.titulo || '');
+                                  setNewTaskDesc(t.descricao || '');
+                                  setNewTaskColabId(t.colaboradorId || '');
+                                  setNewTaskPrazo(t.prazo || '');
+                                  setNewTaskPrioridade(t.prioridade || 'Média');
+                                  setNewTaskStatus(t.status || 'Pendente');
+                                  setShowAddModal(true);
+                                }}
+                                className="p-1.5 text-brand-text-muted hover:text-brand-primary hover:bg-brand-card-light rounded transition-colors"
+                                title="Editar"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                onClick={() => onRemoveTarefa(t.id)}
+                                className="p-1.5 text-brand-text-muted hover:text-red-400 hover:bg-brand-card-light rounded transition-colors"
+                                title="Remover"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-brand-text-muted">
-                          <div className="flex flex-col items-center justify-center space-y-2">
-                            <AlertCircle size={24} className="text-brand-text-muted/40" />
-                            <span>Nenhuma tarefa correspondente aos filtros.</span>
-                          </div>
+                        <td colSpan={2} className="px-4 py-8 text-center text-brand-text-muted">
+                          Nenhuma tarefa encontrada.
                         </td>
                       </tr>
                     )}
@@ -2806,9 +3346,8 @@ export default function CadastrosView({
                 </table>
               </div>
             )}
-
             {/* PAGINATION FOOTER */}
-            {activeTab !== 'tarefas' && totalCount > 0 && (
+            {totalCount > 0 && (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-brand-border/40 text-brand-text-muted text-xs">
                 <div>
                   Exibindo <span className="font-extrabold text-white font-mono">{startRange}</span> a <span className="font-extrabold text-white font-mono">{endRange}</span> de <span className="font-extrabold text-white font-mono">{totalCount}</span> registros
@@ -2870,7 +3409,7 @@ export default function CadastrosView({
                     setNewClientTipoPessoa('');
                     setNewClientAtivo(true);
                     setNewClientGrupoId('');
-                    setNewClientTipoTrib('');
+                    setNewClientSitTribId('');
                     setNewClientDetalhes('');
                     setNewClientCliNome('');
                   }}
@@ -2967,14 +3506,17 @@ export default function CadastrosView({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Tributação (tipo_trib)</label>
-                  <input 
-                    type="text" 
-                    value={newClientTipoTrib}
-                    placeholder="Ex: Simples Nacional"
-                    onChange={e => setNewClientTipoTrib(e.target.value)}
-                    className="w-full bg-brand-bg text-brand-text placeholder-brand-text-muted/20 p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none"
-                  />
+                  <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Situação Tributária</label>
+                  <select
+                    value={newClientSitTribId}
+                    onChange={e => setNewClientSitTribId(e.target.value)}
+                    className="w-full bg-brand-bg text-brand-text p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none"
+                  >
+                    <option value="">Nenhuma Selecionada</option>
+                    {activeSituacoesTribList.map(s => (
+                      <option key={s.id} value={s.id}>{s.situacao || s.id}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -3000,7 +3542,7 @@ export default function CadastrosView({
                     setNewClientTipoPessoa('');
                     setNewClientAtivo(true);
                     setNewClientGrupoId('');
-                    setNewClientTipoTrib('');
+                    setNewClientSitTribId('');
                     setNewClientDetalhes('');
                     setNewClientCliNome('');
                   }}
@@ -3019,6 +3561,98 @@ export default function CadastrosView({
               </div>
             </form>
           )}
+          
+          {/* SITUACAO TRIB ADD/EDIT FORM */}
+          {activeTab === 'situacao_trib' && (
+            <form 
+              onSubmit={handleCreateSituacaoTrib}
+              className="bg-brand-card p-6 rounded-lg max-w-xl w-full border border-brand-border space-y-4 shadow-2xl relative animate-fade-in"
+            >
+              <div className="flex items-center justify-between border-b border-brand-border/45 pb-3">
+                <h3 className="font-extrabold text-white text-base">
+                  {editingSitTribId ? 'Editar Situação Tributária' : 'Nova Situação Tributária'}
+                </h3>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingSitTribId(null);
+                  }}
+                  className="text-brand-text-muted hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-brand-text-muted uppercase tracking-wider mb-1">Cód. Resumido *</label>
+                    <input 
+                      required
+                      type="text"
+                      value={newSitTribResumido}
+                      onChange={e => setNewSitTribResumido(e.target.value)}
+                      className="w-full bg-brand-bg text-brand-text p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none"
+                      placeholder="Ex: 101, 102"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-brand-text-muted uppercase tracking-wider mb-1">Status</label>
+                    <select
+                      value={newSitTribAtivo}
+                      onChange={e => setNewSitTribAtivo(e.target.value as any)}
+                      className="w-full bg-brand-bg text-brand-text p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none"
+                    >
+                      <option value="S">Ativo</option>
+                      <option value="N">Inativo</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-brand-text-muted uppercase tracking-wider mb-1">Descrição / Situação *</label>
+                  <input 
+                    required
+                    type="text"
+                    value={newSitTribSituacao}
+                    onChange={e => setNewSitTribSituacao(e.target.value)}
+                    className="w-full bg-brand-bg text-brand-text p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none"
+                    placeholder="Ex: Tributada pelo Simples Nacional sem permissão de crédito"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-brand-text-muted uppercase tracking-wider mb-1">Grupo</label>
+                  <input 
+                    type="text"
+                    value={newSitTribGrupo}
+                    onChange={e => setNewSitTribGrupo(e.target.value)}
+                    className="w-full bg-brand-bg text-brand-text p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none"
+                    placeholder="Ex: Simples Nacional"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-brand-border/40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingSitTribId(null);
+                  }}
+                  className="px-4 py-2 text-brand-text-muted hover:text-white transition-colors text-xs font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoadingSupabaseSituacaoTrib}
+                  className="px-4 py-2 bg-brand-accent text-white rounded hover:bg-brand-accent/90 text-xs font-bold transition-colors flex items-center gap-2"
+                >
+                  {isLoadingSupabaseSituacaoTrib && <RefreshCw className="animate-spin" size={14} />}
+                  {editingSitTribId ? 'Salvar Alterações' : 'Criar Situação'}
+                </button>
+              </div>
+            </form>
+          )}
+
           {/* GRUPO DE CLIENTES ADD/EDIT FORM */}
           {activeTab === 'grp_clientes' && (
             <form 
@@ -3182,7 +3816,10 @@ export default function CadastrosView({
               <div className="flex justify-end gap-2 pt-3 border-t border-brand-border/40">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setEditingTarefaId(null);
+                    setShowAddModal(false);
+                  }}
                   className="px-4 py-2 bg-brand-bg text-brand-text-muted rounded hover:text-white text-xs font-bold"
                 >
                   Cancelar
@@ -3445,10 +4082,13 @@ export default function CadastrosView({
               className="bg-brand-card p-6 rounded-lg max-w-md w-full border border-brand-border space-y-4 shadow-2xl relative"
             >
               <div className="flex items-center justify-between border-b border-brand-border/45 pb-3">
-                <h3 className="font-extrabold text-white text-base">Criar Pendência de Projeto</h3>
+                <h3 className="font-extrabold text-white text-base">{editingTarefaId ? 'Editar Tarefa' : 'Nova Tarefa'}</h3>
                 <button 
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setEditingTarefaId(null);
+                    setShowAddModal(false);
+                  }}
                   className="p-1 text-brand-text-muted hover:text-white rounded"
                 >
                   <XCircle size={18} />
@@ -3456,79 +4096,15 @@ export default function CadastrosView({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Título da Tarefa *</label>
+                <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Nome da Tarefa *</label>
                 <input 
                   type="text" 
                   required
                   value={newTaskTitulo}
-                  placeholder="Ex: Auditoria de Lançamentos de Gerdau"
+                  placeholder="Ex: Conferência de Fechamento"
                   onChange={e => setNewTaskTitulo(e.target.value)}
                   className="w-full bg-brand-bg text-brand-text placeholder-brand-text-muted/20 p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-bold"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Descrição / Instruções</label>
-                <textarea 
-                  value={newTaskDesc}
-                  rows={2}
-                  placeholder="Forneça detalhes adicionais sobre o que deve ser conferido..."
-                  onChange={e => setNewTaskDesc(e.target.value)}
-                  className="w-full bg-brand-bg text-brand-text placeholder-brand-text-muted/20 p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Executor Responsável</label>
-                  <select
-                    value={newTaskColabId}
-                    onChange={e => setNewTaskColabId(e.target.value)}
-                    className="w-full bg-brand-bg text-brand-text p-2 rounded border border-brand-border text-xs focus:border-brand-primary outline-none h-9 font-bold"
-                  >
-                    {activeColaboradoresList.map(c => (
-                      <option key={c.id} value={c.id}>{c.nome} ({c.cargo})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Prazo de Conclusão</label>
-                  <input 
-                    type="date" 
-                    value={newTaskPrazo}
-                    onChange={e => setNewTaskPrazo(e.target.value)}
-                    className="w-full bg-brand-bg text-brand-text p-2 rounded border border-brand-border text-xs focus:border-brand-primary outline-none h-9 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Prioridade</label>
-                  <select
-                    value={newTaskPrioridade}
-                    onChange={e => setNewTaskPrioridade(e.target.value as any)}
-                    className="w-full bg-brand-bg text-brand-text p-2 rounded border border-brand-border text-xs focus:border-brand-primary outline-none h-9 font-bold"
-                  >
-                    <option value="Baixa">Baixa</option>
-                    <option value="Média">Média</option>
-                    <option value="Alta">Alta</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">Estado de Execução</label>
-                  <select
-                    value={newTaskStatus}
-                    onChange={e => setNewTaskStatus(e.target.value as any)}
-                    className="w-full bg-brand-bg text-brand-text p-2 rounded border border-brand-border text-xs focus:border-brand-primary outline-none h-9 font-bold"
-                  >
-                    <option value="Pendente">Pendente</option>
-                    <option value="Em Andamento">Em Andamento</option>
-                    <option value="Concluída">Concluída</option>
-                  </select>
-                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-brand-border/40 font-sans">
@@ -3541,9 +4117,10 @@ export default function CadastrosView({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-brand-accent text-white rounded hover:bg-brand-accent/90 text-xs font-bold"
+                  disabled={isLoadingSupabaseTarefas}
+                  className="px-4 py-2 bg-brand-accent text-white rounded hover:bg-brand-accent/90 text-xs font-bold disabled:opacity-50"
                 >
-                  Delegar Tarefa
+                  {isLoadingSupabaseTarefas ? 'Salvando...' : 'Salvar'}
                 </button>
               </div>
             </form>

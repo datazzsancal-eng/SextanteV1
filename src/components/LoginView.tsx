@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, KeyRound, Lock, ArrowRight, UserCheck, AlertCircle, Sparkles, LogIn, Key, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, KeyRound, Lock, ArrowRight, UserCheck, AlertCircle, Sparkles, LogIn, Key, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { UserProfile } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
@@ -18,6 +18,11 @@ export default function LoginView({
   const [passwordInput, setPasswordInput] = useState('');
   const [firstPassword, setFirstPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  
+  // Password visibility states
+  const [showPassword, setShowPassword] = useState(false);
+  const [showFirstPassword, setShowFirstPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   // States
   const [detectedUser, setDetectedUser] = useState<UserProfile | null>(null);
@@ -330,28 +335,48 @@ export default function LoginView({
                 <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">
                   Nova Senha de Acesso
                 </label>
-                <input
-                  type="password"
-                  required
-                  value={firstPassword}
-                  onChange={(e) => setFirstPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
-                  className="w-full bg-brand-bg text-white placeholder-brand-text-muted/40 p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-mono"
-                />
+                <div className="relative">
+                  <input
+                    type={showFirstPassword ? 'text' : 'password'}
+                    required
+                    value={firstPassword}
+                    onChange={(e) => setFirstPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full bg-brand-bg text-white placeholder-brand-text-muted/40 p-2.5 pr-10 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFirstPassword(!showFirstPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
+                    title={showFirstPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {showFirstPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">
                   Confirmar Nova Senha
                 </label>
-                <input
-                  type="password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repita a nova senha"
-                  className="w-full bg-brand-bg text-white placeholder-brand-text-muted/40 p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-mono"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a nova senha"
+                    className="w-full bg-brand-bg text-white placeholder-brand-text-muted/40 p-2.5 pr-10 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
+                    title={showConfirmPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -406,13 +431,23 @@ export default function LoginView({
                 <label className="block text-xs font-bold text-brand-text-muted uppercase mb-1">
                   Senha de Acesso
                 </label>
-                <input
-                  type="password"
-                  value={passwordInput}
-                  onChange={(e) => setPasswordInput(e.target.value)}
-                  placeholder="Digite sua senha..."
-                  className="w-full bg-brand-bg text-white placeholder-brand-text-muted/40 p-2.5 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-mono"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="Digite sua senha..."
+                    className="w-full bg-brand-bg text-white placeholder-brand-text-muted/40 p-2.5 pr-10 rounded border border-brand-border text-xs focus:border-brand-primary outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-text-muted hover:text-white transition-colors cursor-pointer p-0.5"
+                    title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
 
               <div className="pt-1">

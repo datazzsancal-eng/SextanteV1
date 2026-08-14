@@ -20,7 +20,7 @@ interface SidebarProps {
   currentTab: string;
   onTabChange: (tabId: string) => void;
   currentUser: UserProfile;
-  onChangeUser: () => void;
+  onChangeUser?: () => void;
   onLogout?: () => void;
 }
 
@@ -28,7 +28,6 @@ export default function Sidebar({
   currentTab,
   onTabChange,
   currentUser,
-  onChangeUser,
   onLogout
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -398,15 +397,13 @@ export default function Sidebar({
         className="mt-auto pt-4 border-t border-brand-border/40 w-full flex flex-col gap-2"
       >
         <div className="flex items-center justify-between gap-1">
-          <button
-            onClick={onChangeUser}
-            className={`flex-1 flex items-center rounded-lg hover:bg-brand-card transition-all duration-200 cursor-pointer text-left group ${
+          <div
+            className={`flex-1 flex items-center rounded-lg select-none ${
               isCollapsed ? 'justify-center p-1' : 'gap-3 p-2'
             }`}
-            title="Clique para alternar perfil de usuário"
           >
             <div className="relative shrink-0">
-              <div className="w-9 h-9 rounded-full bg-brand-accent flex items-center justify-center text-white font-bold text-xs select-none shadow border border-brand-primary/20">
+              <div className="w-9 h-9 rounded-full bg-brand-accent flex items-center justify-center text-white font-bold text-xs shadow border border-brand-primary/20">
                 {currentUser?.avatar || (currentUser?.name ? currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'US')}
               </div>
               <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-brand-bg" />
@@ -414,7 +411,7 @@ export default function Sidebar({
             
             {!isCollapsed && (
               <div className="min-w-0 flex-1">
-                <h4 className="text-xs font-bold text-brand-text group-hover:text-brand-primary transition-colors truncate">
+                <h4 className="text-xs font-bold text-brand-text truncate">
                   {currentUser?.name || 'Usuário Autenticado'}
                 </h4>
                 <div className="flex items-center gap-1.5 truncate">
@@ -429,7 +426,7 @@ export default function Sidebar({
                 )}
               </div>
             )}
-          </button>
+          </div>
 
           {/* Dedicated Logout Button */}
           {onLogout && (

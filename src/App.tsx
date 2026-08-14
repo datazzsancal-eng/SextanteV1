@@ -508,7 +508,6 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={handleTabChange}
         currentUser={currentUser}
-        onChangeUser={handleCycleUser}
         onLogout={handleLogout}
       />
 

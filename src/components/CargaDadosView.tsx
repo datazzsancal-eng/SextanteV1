@@ -201,30 +201,68 @@ export default function CargaDadosView({
       let signedUrl = '';
 
       if (isSupabaseConfigured && supabase) {
-        // Upload to bucket
-        const { error: uploadError } = await supabase.storage
-          .from(bucketName)
-          .upload(storagePath, selectedFile, {
-            cacheControl: '3600',
-            upsert: true
+        const fileType = selectedFile.type || (isSalary ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/csv');
+
+        try {
+          // 1. Tentar upload direto pelo SDK cliente com contentType explícito
+          const { error: uploadError } = await supabase.storage
+            .from(bucketName)
+            .upload(storagePath, selectedFile, {
+              cacheControl: '3600',
+              contentType: fileType,
+              upsert: true
+            });
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          // Obter link assinado válido por 7 dias (604800s)
+          const { data: signData, error: signError } = await supabase.storage
+            .from(bucketName)
+            .createSignedUrl(storagePath, 604800);
+
+          if (signError || !signData?.signedUrl) {
+            throw signError || new Error('Não foi possível obter a URL assinada.');
+          }
+
+          signedUrl = signData.signedUrl;
+        } catch (directUploadErr: any) {
+          console.warn('Upload direto pelo navegador falhou/bloqueado. Tentando via servidor proxy:', directUploadErr?.message);
+
+          // 2. Converter arquivo em base64 e realizar o upload através do proxy no servidor backend
+          const arrayBuffer = await selectedFile.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const fileBase64 = btoa(binary);
+
+          const proxyRes = await fetch('/api/supabase-upload', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              bucket: bucketName,
+              path: storagePath,
+              fileBase64,
+              contentType: fileType,
+              supabaseUrl: (import.meta as any).env.VITE_SUPABASE_URL,
+              supabaseKey: (import.meta as any).env.VITE_SUPABASE_KEY
+            })
           });
 
-        if (uploadError) {
-          throw new Error(`Falha no upload para o Supabase: ${uploadError.message}`);
+          const proxyData = await proxyRes.json();
+          if (!proxyRes.ok || !proxyData?.signedUrl) {
+            throw new Error(`Falha no upload para o bucket Supabase ("${bucketName}"): ${proxyData?.message || directUploadErr?.message || 'Verifique se o bucket existe e possui permissão de gravação'}`);
+          }
+
+          signedUrl = proxyData.signedUrl;
         }
-
-        // Get 7-day signed URL (604800 seconds)
-        const { data: signData, error: signError } = await supabase.storage
-          .from(bucketName)
-          .createSignedUrl(storagePath, 604800);
-
-        if (signError || !signData?.signedUrl) {
-          throw new Error(`Falha ao gerar link assinado: ${signError?.message || 'Link não retornado'}`);
-        }
-
-        signedUrl = signData.signedUrl;
       } else {
-        // Mock fallback link for testing
+        // Mock fallback link para testes quando Supabase não estiver configurado no ambiente
         signedUrl = `https://mock.supabase.co/storage/v1/object/sign/${bucketName}/${storagePath}?token=mock_preview_token_for_development`;
       }
 
@@ -238,21 +276,37 @@ export default function CargaDadosView({
         uploaded_by: currentUserEmail || 'usuario@empresa.com'
       };
 
-      // POST request to target webhook url
+      // POST request to target webhook url via proxy (to avoid browser CORS preflight blocks)
       const webhookUrl = isSalary 
         ? 'https://webhook.synapiens.com.br/webhook/carga-salarios'
         : 'https://webhook.synapiens.com.br/webhook/carga-apontamentos';
 
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(webhookPayload)
-      });
+      let response: Response;
+      try {
+        response = await fetch('/api/webhook-proxy', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            targetUrl: webhookUrl,
+            payload: webhookPayload
+          })
+        });
+      } catch (proxyError) {
+        console.warn('Proxy local indisponível, tentando envio direto:', proxyError);
+        response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(webhookPayload)
+        });
+      }
 
       if (!response.ok) {
-        throw new Error(`O servidor webhook retornou erro HTTP ${response.status}`);
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`O servidor webhook retornou erro HTTP ${response.status}${errorText ? `: ${errorText}` : ''}`);
       }
 
       const responseData = await response.json();
@@ -272,11 +326,31 @@ export default function CargaDadosView({
         // Save to Supabase table logs_carga
         if (isSupabaseConfigured && supabase) {
           saveLogToSupabase(responseData.arquivo || originalFilename, lineCount, 'SUCESSO', storagePath);
+
+          // Execução dos 2 refreshes de views materializadas pós-webhook
+          try {
+            console.log('🔄 [Refresh Views] Iniciando atualização das views materializadas no Supabase...');
+            const resSetTrf = await supabase.rpc('refresh_vwm_cli_set_trf');
+            if (resSetTrf.error) {
+              console.warn('⚠️ [Refresh Views] Aviso ao atualizar refresh_vwm_cli_set_trf:', resSetTrf.error);
+            } else {
+              console.log('✅ [Refresh Views] refresh_vwm_cli_set_trf executado com sucesso.');
+            }
+
+            const resAgrCli = await supabase.rpc('refresh_vwm_agr_cli');
+            if (resAgrCli.error) {
+              console.warn('⚠️ [Refresh Views] Aviso ao atualizar refresh_vwm_agr_cli:', resAgrCli.error);
+            } else {
+              console.log('✅ [Refresh Views] refresh_vwm_agr_cli executado com sucesso.');
+            }
+          } catch (refreshErr) {
+            console.error('❌ [Refresh Views] Erro ao executar procedure de refresh:', refreshErr);
+          }
         }
 
         setUploadMessage({
           type: 'success',
-          text: `Sucesso! O lote de arquivos "${responseData.arquivo || originalFilename}" foi processado via webhook.`
+          text: `Sucesso! O lote de arquivos "${responseData.arquivo || originalFilename}" foi processado via webhook e as views de relatórios foram atualizadas.`
         });
       } else {
         throw new Error(

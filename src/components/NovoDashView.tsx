@@ -19,7 +19,11 @@ import {
   Eye,
   Bell,
   ClipboardList,
-  AlertTriangle
+  AlertTriangle,
+  Building2,
+  UserCheck,
+  User,
+  CheckCircle2
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
@@ -97,9 +101,14 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
   const [selectedClientDetail, setSelectedClientDetail] = useState<any | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
-  // 12-Month Chart States
-  const [hoursHistoryData, setHoursHistoryData] = useState<{ label: string; value: number; hms: string; active: boolean }[]>([]);
+  // 12-Month Chart States & Month Drilldown Modal
+  const [hoursHistoryData, setHoursHistoryData] = useState<{ label: string; fullLabel?: string; value: number; hms: string; active: boolean; periodKey?: string; ano?: number; mes?: number }[]>([]);
   const [isLoadingChart, setIsLoadingChart] = useState<boolean>(false);
+  const [selectedMonthDetail, setSelectedMonthDetail] = useState<any | null>(null);
+  const [expandedMonthNodes, setExpandedMonthNodes] = useState<Set<string>>(new Set());
+  const [monthModalDetails, setMonthModalDetails] = useState<any[]>([]);
+  const [isMonthModalLoading, setIsMonthModalLoading] = useState<boolean>(false);
+  const [monthModalError, setMonthModalError] = useState<string | null>(null);
 
   // Selected client IDs for filtering cards and charts
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
@@ -286,6 +295,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           });
 
           let allChartFetched: any[] = [];
+          const seenChartKeys = new Set<string>();
           let hasMore = true;
           let page = 0;
           const pageSize = 1000;
@@ -293,28 +303,44 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           while (hasMore) {
             let query = supabase
               .from('vw_apontamento_mensal_resumo')
-              .select('empresa_id, aponta_ano, aponta_mes, aponta_qtde_segundos')
-              ;
+              .select('empresa_id, depto_id, aponta_ano, aponta_mes, aponta_qtde_segundos, depto_calcula_sn')
+              .eq('depto_calcula_sn', true);
 
             const targetPeriods = targets.map(t => {
               const [y, m] = t.split('-');
               return { ano: parseInt(y), mes: parseInt(m) };
             });
-            const orCond = targetPeriods.map(p => `and(aponta_ano.eq.${p.ano},aponta_mes.eq.${p.mes})`).join(',');
-            if (orCond) {
-              query = query.or(orCond);
+            const targetYears = Array.from(new Set(targetPeriods.map(p => p.ano)));
+            const targetMonths = Array.from(new Set(targetPeriods.map(p => p.mes)));
+            if (targetYears.length > 0) {
+              query = query.in('aponta_ano', targetYears);
+            }
+            if (targetMonths.length > 0) {
+              query = query.in('aponta_mes', targetMonths);
             }
 
             if (selectedClientIds.size > 0) {
               query = query.in('empresa_id', Array.from(selectedClientIds));
             }
 
+            query = query
+              .order('aponta_ano', { ascending: true })
+              .order('aponta_mes', { ascending: true })
+              .order('empresa_id', { ascending: true })
+              .order('depto_id', { ascending: true });
+
             const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
             if (error) throw error;
 
             if (data && data.length > 0) {
-              allChartFetched = [...allChartFetched, ...data];
-              if (data.length < pageSize || allChartFetched.length > 50000) {
+              data.forEach((row: any) => {
+                const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
+                if (!seenChartKeys.has(rKey)) {
+                  seenChartKeys.add(rKey);
+                  allChartFetched.push(row);
+                }
+              });
+              if (data.length < pageSize) {
                 hasMore = false;
               }
             } else {
@@ -323,7 +349,22 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
             page++;
           }
 
-          allChartFetched.forEach((row: any) => {
+          const targetSet = new Set(targets.map(t => {
+            const [y, m] = t.split('-');
+            return `${parseInt(y)}-${parseInt(m)}`;
+          }));
+
+          const validChartFetched = allChartFetched.filter((row: any) => 
+            targetSet.has(`${row.aponta_ano}-${row.aponta_mes}`) &&
+            (row.depto_calcula_sn === true || 
+            row.depto_calcula_sn === 'S' || 
+            row.depto_calcula_sn === 's' || 
+            row.depto_calcula_sn === 1 || 
+            row.depto_calcula_sn === '1' || 
+            row.depto_calcula_sn === undefined)
+          );
+
+          validChartFetched.forEach((row: any) => {
             const pKey = `${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}`;
             if (pKey in aggMap) {
               aggMap[pKey] += row.aponta_qtde_segundos || 0;
@@ -332,15 +373,21 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
 
           const formattedChart = targets.map((t) => {
             const [yStr, mStr] = t.split('-');
+            const yNum = parseInt(yStr);
             const mNum = parseInt(mStr);
             const label = `${getMonthAbbrUpper(mNum)}/${yStr.slice(-2)}`;
+            const fullLabel = `${getMonthAbbrUpper(mNum)}/${yStr}`;
             const totalSecs = aggMap[t] || 0;
             const hmsValue = formatSecondsToHms(totalSecs);
             return {
               label,
+              fullLabel,
               value: totalSecs,
               hms: hmsValue,
-              active: periodsInInterval.includes(t)
+              active: periodsInInterval.includes(t),
+              periodKey: t,
+              ano: yNum,
+              mes: mNum
             };
           });
 
@@ -374,6 +421,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
 
           // Fetch primary data page by page from vw_apontamento_mensal_resumo
           let allFetched: any[] = [];
+          const seenKeys = new Set<string>();
           let hasMore = true;
           let page = 0;
           const pageSize = 1000;
@@ -381,12 +429,26 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           while (hasMore) {
             let query = supabase.from('vw_apontamento_mensal_resumo')
               .select('*')
-              ;
+              .eq('depto_calcula_sn', true);
 
             const prevYears = Array.from(new Set(periodsInt.map(p => p.ano)));
-          if (prevYears.length > 0) {
-            query = query.in('aponta_ano', prevYears);
-          }
+            const prevMonths = Array.from(new Set(periodsInt.map(p => p.mes)));
+            if (prevYears.length > 0) {
+              query = query.in('aponta_ano', prevYears);
+            }
+            if (prevMonths.length > 0) {
+              query = query.in('aponta_mes', prevMonths);
+            }
+
+            if (selectedClientIds.size > 0) {
+              query = query.in('empresa_id', Array.from(selectedClientIds));
+            }
+
+            query = query
+              .order('aponta_ano', { ascending: true })
+              .order('aponta_mes', { ascending: true })
+              .order('empresa_id', { ascending: true })
+              .order('depto_id', { ascending: true });
 
           const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
           if (error) throw error;
@@ -394,37 +456,42 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           if (data && data.length > 0) {
             const validSet = new Set(periodsInt.map(p => `${p.ano}-${p.mes}`));
             const filteredData = data.filter((row: any) => validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined));
-            const mappedData = filteredData.map((row: any) => ({
-              id: `${row.empresa_id}-${row.depto_id}-${row.aponta_ano}-${row.aponta_mes}`,
-              grupo_id: row.grupo_id,
-              grupo_nome: row.grupo_nome,
-              cliente_id: row.empresa_id,
-              codigo: row.empresa_codigo,
-              tipo_pessoa: row.empresa_tp_pessoa || 'PJ',
-              nome: row.empresa_nome,
-              documento: row.empresa_documento,
-              sit_trib_id: row.empresa_tp_trib,
-              usuario_id: null,
-              nome_colab: null,
-              colaborador_id: null,
-              tarefa_id: null,
-              tarefa: 'GERAL',
-              departamento_id: row.depto_id,
-              departamento: row.depto_nome,
-              depto_calcula_sn: row.depto_calcula_sn,
-              data_apontamento: `${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}-01`,
-              ano: row.aponta_ano,
-              mes: row.aponta_mes,
-              qtde_segundos: row.aponta_qtde_segundos || 0,
-              qtde_horas: row.aponta_qtde_horas || 0,
-              tempo_horas: row.aponta_tempo_horas || '00:00:00',
-              valor_hora: row.aponta_qtde_horas ? (row.aponta_valor_lancamento / row.aponta_qtde_horas) : 0,
-              valor_lancamento: row.aponta_valor_lancamento || 0,
-              carregado_em: null
-            }));
-
-            allFetched = [...allFetched, ...mappedData];
-            if (data.length < pageSize || allFetched.length > 50000) {
+            
+            filteredData.forEach((row: any) => {
+              const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
+              if (!seenKeys.has(rKey)) {
+                seenKeys.add(rKey);
+                allFetched.push({
+                  id: rKey,
+                  grupo_id: row.grupo_id,
+                  grupo_nome: row.grupo_nome,
+                  cliente_id: row.empresa_id,
+                  codigo: row.empresa_codigo,
+                  tipo_pessoa: row.empresa_tp_pessoa || 'PJ',
+                  nome: row.empresa_nome,
+                  documento: row.empresa_documento,
+                  sit_trib_id: row.empresa_tp_trib,
+                  usuario_id: null,
+                  nome_colab: null,
+                  colaborador_id: null,
+                  tarefa_id: null,
+                  tarefa: 'GERAL',
+                  departamento_id: row.depto_id,
+                  departamento: row.depto_nome,
+                  depto_calcula_sn: row.depto_calcula_sn,
+                  data_apontamento: `${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}-01`,
+                  ano: row.aponta_ano,
+                  mes: row.aponta_mes,
+                  qtde_segundos: row.aponta_qtde_segundos || 0,
+                  qtde_horas: row.aponta_qtde_horas || 0,
+                  tempo_horas: row.aponta_tempo_horas || '00:00:00',
+                  valor_hora: row.aponta_qtde_horas ? (row.aponta_valor_lancamento / row.aponta_qtde_horas) : 0,
+                  valor_lancamento: row.aponta_valor_lancamento || 0,
+                  carregado_em: null
+                });
+              }
+            });
+            if (data.length < pageSize) {
               hasMore = false;
             }
           } else {
@@ -500,6 +567,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
       setIsLoadingPrevMetrics(true);
       try {
         let prevData: any[] = [];
+        const seenPrevKeys = new Set<string>();
         const periodsInt = validPrevPeriods.map(p => {
           const [y, m] = p.split('-');
           return { ano: parseInt(y), mes: parseInt(m) };
@@ -512,12 +580,26 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
         while (hasMore) {
           let query = supabase.from('vw_apontamento_mensal_resumo')
             .select('*')
-            ;
+            .eq('depto_calcula_sn', true);
 
           const prevYears = Array.from(new Set(periodsInt.map(p => p.ano)));
+          const prevMonths = Array.from(new Set(periodsInt.map(p => p.mes)));
           if (prevYears.length > 0) {
             query = query.in('aponta_ano', prevYears);
           }
+          if (prevMonths.length > 0) {
+            query = query.in('aponta_mes', prevMonths);
+          }
+
+          if (selectedClientIds.size > 0) {
+            query = query.in('empresa_id', Array.from(selectedClientIds));
+          }
+
+          query = query
+            .order('aponta_ano', { ascending: true })
+            .order('aponta_mes', { ascending: true })
+            .order('empresa_id', { ascending: true })
+            .order('depto_id', { ascending: true });
 
           const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
           if (error) throw error;
@@ -525,15 +607,19 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           if (data && data.length > 0) {
             const validSet = new Set(periodsInt.map(p => `${p.ano}-${p.mes}`));
             const filteredData = data.filter((row: any) => validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined));
-            const mappedData = filteredData.map((row: any) => ({
-              cliente_id: row.empresa_id,
-              nome: row.empresa_nome,
-              qtde_segundos: row.aponta_qtde_segundos || 0,
-              valor_lancamento: row.aponta_valor_lancamento || 0
-            }));
 
-            prevData = [...prevData, ...mappedData];
-            if (data.length < pageSize || prevData.length > 50000) hasMore = false;
+            filteredData.forEach((row: any) => {
+              const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
+              if (!seenPrevKeys.has(rKey)) {
+                seenPrevKeys.add(rKey);
+                prevData.push({
+                  cliente_id: row.empresa_id,
+                  valor_lancamento: row.aponta_valor_lancamento || 0,
+                  qtde_segundos: row.aponta_qtde_segundos || 0
+                });
+              }
+            });
+            if (data.length < pageSize) hasMore = false;
           } else {
             hasMore = false;
           }
@@ -861,6 +947,263 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
     return { departments, total_hours, total_valor_lacto };
   }, [selectedClientDetail, apontamentosData]);
 
+  // Hierarchy calculations for selected month drilldown modal (Setor/Área -> Empresa -> Função -> Colaborador -> Tarefa)
+  const hierarchicallyGroupedMonthDetails = useMemo(() => {
+    if (!selectedMonthDetail) return { departments: {}, total_hours: 0, total_companies: 0 };
+
+    let total_hours = 0;
+    const companiesSet = new Set<string>();
+
+    const departments: Record<string, {
+      total_segundos: number;
+      companies: Record<string, {
+        empresa_nome: string;
+        empresa_id: string;
+        total_segundos: number;
+        roles: Record<string, {
+          role_nome: string;
+          total_segundos: number;
+          collaborators: Record<string, {
+            colaborador_nome: string;
+            total_segundos: number;
+            tasks: Record<string, {
+              tarefa_nome: string;
+              total_segundos: number;
+            }>;
+          }>;
+        }>;
+      }>;
+    }> = {};
+
+    const records = monthModalDetails;
+
+    records.forEach(item => {
+      const deptName = item.depto_nome || 'SEM DEPARTAMENTO';
+      const companyName = item.empresa_nome || item.cliente_nome || 'SEM EMPRESA';
+      const companyId = item.empresa_id || item.cliente_id || companyName;
+      const roleName = item.grp_crg_nome || 'SEM FUNÇÃO';
+      const colabName = item.colaborador_nome || 'SEM COLABORADOR';
+      const taskName = item.tarefa_nome || 'SEM IDENTIFICAÇÃO';
+      const secs = item.aponta_qtde_segundos || 0;
+
+      total_hours += secs;
+      if (companyId) companiesSet.add(companyId);
+
+      // Level 1: Departamento (Setor / Área)
+      if (!departments[deptName]) {
+        departments[deptName] = { total_segundos: 0, companies: {} };
+      }
+      departments[deptName].total_segundos += secs;
+
+      // Level 2: Empresa
+      if (!departments[deptName].companies[companyName]) {
+        departments[deptName].companies[companyName] = {
+          empresa_nome: companyName,
+          empresa_id: companyId,
+          total_segundos: 0,
+          roles: {}
+        };
+      }
+      departments[deptName].companies[companyName].total_segundos += secs;
+
+      // Level 3: Função (Cargo)
+      if (!departments[deptName].companies[companyName].roles[roleName]) {
+        departments[deptName].companies[companyName].roles[roleName] = {
+          role_nome: roleName,
+          total_segundos: 0,
+          collaborators: {}
+        };
+      }
+      departments[deptName].companies[companyName].roles[roleName].total_segundos += secs;
+
+      // Level 4: Colaborador
+      if (!departments[deptName].companies[companyName].roles[roleName].collaborators[colabName]) {
+        departments[deptName].companies[companyName].roles[roleName].collaborators[colabName] = {
+          colaborador_nome: colabName,
+          total_segundos: 0,
+          tasks: {}
+        };
+      }
+      departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].total_segundos += secs;
+
+      // Level 5: Tarefa
+      if (!departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName]) {
+        departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName] = {
+          tarefa_nome: taskName,
+          total_segundos: 0
+        };
+      }
+      departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName].total_segundos += secs;
+    });
+
+    return { departments, total_hours, total_companies: companiesSet.size };
+  }, [selectedMonthDetail, monthModalDetails]);
+
+  const fetchMonthDetails = async (monthItem: any) => {
+    if (!monthItem) return;
+
+    if (!supabase || !isSupabaseConfigured) {
+      setIsMonthModalLoading(true);
+      setMonthModalError(null);
+      try {
+        const mockDepts = ['FISCAL', 'CONTÁBIL', 'REGISTRO', 'DP', 'FINANCEIRO'];
+        const mockCompanies = [
+          'EMPRESA ALFA LTDA',
+          'BETA SERVICOS S/A',
+          'GAMMA COMERCIO E INDUSTRIA',
+          'DELTA TECNOLOGIA',
+          'EPSILON DISTRIBUIDORA'
+        ];
+        const mockRoles = [
+          'Coordenação de Controladoria',
+          'Análise de Planejamento Financeiro',
+          'Operações Fiscais',
+          'Suporte Administrativo'
+        ];
+        const mockColabs = [
+          'PAMELA LEDUR INÁCIO',
+          'JÉSSICA CASTRO DA ROSA',
+          'MARIA SILVA',
+          'CARLOS SOUZA'
+        ];
+        const mockTasks = [
+          'Apuração de Impostos do Simples Nacional',
+          'Conciliação Bancária Mensal',
+          'Processamento de Folha de Pagamento',
+          'Fechamento Contábil Mensal'
+        ];
+
+        const generated: any[] = [];
+        const totalSecs = monthItem.value || 54000;
+        let remainingSecs = totalSecs;
+
+        for (let i = 0; i < 10; i++) {
+          const dName = mockDepts[i % mockDepts.length];
+          const cName = mockCompanies[i % mockCompanies.length];
+          const rName = mockRoles[i % mockRoles.length];
+          const colabName = mockColabs[i % mockColabs.length];
+          const taskName = mockTasks[i % mockTasks.length];
+          const share = i === 9 ? remainingSecs : Math.floor(Math.random() * (remainingSecs / 2)) + 1800;
+          remainingSecs -= share;
+          if (share <= 0) continue;
+
+          generated.push({
+            empresa_id: `emp_${i}`,
+            empresa_nome: cName,
+            colaborador_nome: colabName,
+            depto_nome: dName,
+            grp_crg_nome: rName,
+            tarefa_nome: taskName,
+            aponta_qtde_segundos: share,
+            aponta_valor_lancamento: (share / 3600) * 40.0,
+            aponta_ano: monthItem.ano || 2026,
+            aponta_mes: monthItem.mes || 5
+          });
+        }
+        setMonthModalDetails(generated);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsMonthModalLoading(false);
+      }
+      return;
+    }
+
+    setIsMonthModalLoading(true);
+    setMonthModalError(null);
+    setMonthModalDetails([]);
+
+    try {
+      let allFetched: any[] = [];
+      const seenModalKeys = new Set<string>();
+      let hasMore = true;
+      let page = 0;
+      const pageSize = 1000;
+
+      while (hasMore) {
+        let query = supabase.from('vw_apontamento_mensal_resumo')
+          .select('*')
+          .eq('aponta_ano', monthItem.ano)
+          .eq('aponta_mes', monthItem.mes)
+          .eq('depto_calcula_sn', true);
+
+        if (selectedClientIds.size > 0) {
+          query = query.in('empresa_id', Array.from(selectedClientIds));
+        }
+
+        query = query
+          .order('aponta_ano', { ascending: true })
+          .order('aponta_mes', { ascending: true })
+          .order('empresa_id', { ascending: true })
+          .order('depto_id', { ascending: true });
+
+        const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const validData = data.filter((row: any) => row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined);
+          validData.forEach((row: any) => {
+            const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
+            if (!seenModalKeys.has(rKey)) {
+              seenModalKeys.add(rKey);
+              allFetched.push(row);
+            }
+          });
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+        page++;
+      }
+
+      setMonthModalDetails(allFetched);
+    } catch (err: any) {
+      console.error('Error fetching month modal details:', err);
+      setMonthModalError(err.message || 'Erro ao carregar detalhes do mês.');
+    } finally {
+      setIsMonthModalLoading(false);
+    }
+  };
+
+  const toggleMonthNodeExpression = (nodeKey: string) => {
+    const next = new Set(expandedMonthNodes);
+    if (next.has(nodeKey)) {
+      next.delete(nodeKey);
+    } else {
+      next.add(nodeKey);
+    }
+    setExpandedMonthNodes(next);
+  };
+
+  const expandAllMonthNodes = (departments: any) => {
+    const next = new Set<string>();
+    Object.keys(departments).forEach(deptName => {
+      const deptKey = `m_dept:${deptName}`;
+      next.add(deptKey);
+      const deptItem = departments[deptName];
+      Object.keys(deptItem.companies).forEach(compName => {
+        const compKey = `${deptKey}|comp:${compName}`;
+        next.add(compKey);
+        const compItem = deptItem.companies[compName];
+        Object.keys(compItem.roles).forEach(roleName => {
+          const roleKey = `${compKey}|role:${roleName}`;
+          next.add(roleKey);
+          const roleItem = compItem.roles[roleName];
+          Object.keys(roleItem.collaborators).forEach(colabName => {
+            next.add(`${roleKey}|colab:${colabName}`);
+          });
+        });
+      });
+    });
+    setExpandedMonthNodes(next);
+  };
+
+  const collapseAllMonthNodes = () => {
+    setExpandedMonthNodes(new Set());
+  };
+
   // Labels for current vs previous comparison
   const { currentLabel, prevLabel } = useMemo(() => {
     if (!startPeriod || !endPeriod) return { currentLabel: 'Nenhum', prevLabel: '--' };
@@ -1048,8 +1391,13 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
         <div className="bg-brand-card p-6 rounded-lg border border-brand-border shadow-lg" id="hours-chart-module">
           <div className="flex items-center justify-between pb-6 border-b border-brand-border/40 mb-6">
             <div>
-              <h3 className="text-lg font-bold text-white">Acompanhamento de Horas (12 Meses)</h3>
-              <p className="text-xs text-brand-text-muted">Total consolidado de apontamentos nos últimos 12 meses (horas:min:seg)</p>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <span>Acompanhamento de Horas (12 Meses)</span>
+                <span className="text-[10px] font-normal text-brand-primary bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded-full">
+                  Clique na barra para detalhar
+                </span>
+              </h3>
+              <p className="text-xs text-brand-text-muted">Total consolidado de apontamentos nos últimos 12 meses — clique em um mês para abrir a quebra por Setor e Empresa</p>
             </div>
             
             <div className="text-right text-xs bg-brand-bg py-1.5 px-3 rounded border border-brand-border text-brand-primary font-bold">
@@ -1094,7 +1442,13 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                   return (
                     <div 
                       key={index} 
-                      className="flex flex-col items-center flex-1 group/bar relative z-10"
+                      className="flex flex-col items-center flex-1 group/bar relative z-10 cursor-pointer"
+                      onClick={() => {
+                        setSelectedMonthDetail(data);
+                        setExpandedMonthNodes(new Set());
+                        fetchMonthDetails(data);
+                      }}
+                      title={`Clique para ver detalhamento do mês ${data.fullLabel || data.label}`}
                     >
                       {/* Hover state Popover Value tooltip */}
                       <div className="absolute -top-12 scale-0 group-hover/bar:scale-100 transition-all duration-150 origin-bottom bg-brand-card-bright border border-brand-primary/40 py-1.5 px-3 rounded text-xs text-white font-mono font-bold shadow-2xl z-20 whitespace-nowrap">
@@ -2100,6 +2454,300 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
               <button
                 type="button"
                 onClick={() => setSelectedClientDetail(null)}
+                className="px-4 py-1.5 bg-brand-primary hover:bg-brand-primary-dark text-white font-bold rounded shadow-md cursor-pointer transition-transform active:scale-95"
+              >
+                Voltar ao Dash Executivo
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Month Detail Drill-down Modal (Setor/Área -> Empresa -> Função -> Colaborador -> Tarefa) */}
+      {selectedMonthDetail && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in p-4 overflow-y-auto">
+          <div className="bg-brand-card border border-brand-border rounded-xl max-w-3xl w-full shadow-2xl flex flex-col h-full max-h-[85vh] overflow-hidden" id="month-drilldown-modal">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-brand-border/60 flex items-start justify-between bg-brand-card-light">
+              <div>
+                <span className="p-1 px-1.5 rounded text-[10px] font-mono tracking-wider font-bold bg-brand-primary/10 text-brand-primary border border-brand-primary/20">
+                  DETALHAMENTO DE HORAS DO MÊS (NOVO DASH)
+                </span>
+                <h3 className="font-extrabold text-xl text-white mt-1 flex items-center gap-2">
+                  <span>{selectedMonthDetail.fullLabel || selectedMonthDetail.label}</span>
+                </h3>
+                <p className="text-xs text-brand-text-muted mt-1 font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>Período Selecionado:</span>
+                  <span className="font-mono text-white font-black uppercase bg-brand-bg px-1.5 py-0.5 rounded border border-brand-border/40">
+                    {selectedMonthDetail.fullLabel || selectedMonthDetail.label}
+                  </span>
+                  <span className="text-brand-text-muted/40">•</span>
+                  <span>Quebra por Setor/Área e Empresas</span>
+                </p>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setSelectedMonthDetail(null)}
+                className="p-1.5 bg-brand-bg hover:bg-red-500/10 hover:text-red-400 border border-brand-border/40 hover:border-red-500/30 rounded-lg text-brand-text-muted transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Total Summary bar */}
+            <div className="bg-brand-bg/60 p-4 border-b border-brand-border/35 flex flex-col md:flex-row md:items-center md:justify-between gap-4 text-xs">
+              <div className="flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-brand-primary/10 text-brand-primary rounded-lg border border-brand-primary/15 shrink-0">
+                    <Clock size={16} />
+                  </div>
+                  <div>
+                    <div className="text-brand-text-muted text-[10px] uppercase font-bold tracking-wider">Tempo Total Auditado no Mês</div>
+                    <div className="text-base font-mono font-black text-white leading-tight">
+                      {formatSecondsToHms(hierarchicallyGroupedMonthDetails.total_hours)}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/15 shrink-0">
+                    <Building2 size={16} />
+                  </div>
+                  <div>
+                    <div className="text-brand-text-muted text-[10px] uppercase font-bold tracking-wider">Empresas Presentes</div>
+                    <div className="text-base font-mono font-black text-white leading-tight">
+                      {hierarchicallyGroupedMonthDetails.total_companies} {hierarchicallyGroupedMonthDetails.total_companies === 1 ? 'empresa' : 'empresas'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 md:self-center">
+                <button
+                  type="button"
+                  onClick={() => expandAllMonthNodes(hierarchicallyGroupedMonthDetails.departments)}
+                  className="px-2.5 py-1 text-[10px] font-bold tracking-wider text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/15 border border-brand-primary/20 rounded-md transition-colors uppercase cursor-pointer"
+                >
+                  Expandir Tudo
+                </button>
+                <button
+                  type="button"
+                  onClick={collapseAllMonthNodes}
+                  className="px-2.5 py-1 text-[10px] font-bold tracking-wider text-brand-text-muted bg-brand-bg hover:bg-brand-card/40 border border-brand-border/60 rounded-md transition-colors uppercase cursor-pointer"
+                >
+                  Recolher Tudo
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-auto flex-1 custom-scrollbar space-y-4 bg-brand-bg/15">
+              {isMonthModalLoading ? (
+                <div className="py-20 text-center space-y-4">
+                  <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-sm text-brand-text-muted">Carregando apontamentos do mês...</p>
+                </div>
+              ) : monthModalError ? (
+                <div className="py-20 text-center space-y-3">
+                  <div className="text-red-500 text-sm font-semibold">{monthModalError}</div>
+                  <button
+                    type="button"
+                    onClick={() => fetchMonthDetails(selectedMonthDetail)}
+                    className="px-4 py-2 bg-brand-primary hover:bg-brand-primary-dark text-white rounded text-xs font-bold cursor-pointer"
+                  >
+                    Tentar Novamente
+                  </button>
+                </div>
+              ) : Object.keys(hierarchicallyGroupedMonthDetails.departments).length === 0 ? (
+                <div className="py-20 text-center space-y-3">
+                  <ClipboardList className="text-brand-text-muted/30 mx-auto" size={40} />
+                  <p className="text-sm italic text-brand-text-muted">Nenhum apontamento registrado para este mês.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {Object.keys(hierarchicallyGroupedMonthDetails.departments)
+                    .sort((a, b) => hierarchicallyGroupedMonthDetails.departments[b].total_segundos - hierarchicallyGroupedMonthDetails.departments[a].total_segundos)
+                    .map((deptName) => {
+                      const deptItem = hierarchicallyGroupedMonthDetails.departments[deptName];
+                      const deptKey = `m_dept:${deptName}`;
+                      const isDeptExpanded = expandedMonthNodes.has(deptKey);
+                      const deptCompCount = Object.keys(deptItem.companies).length;
+
+                      return (
+                        <div key={deptKey} className="border border-brand-border/40 rounded-lg overflow-hidden bg-brand-card/30">
+                          
+                          {/* Level 1: Setor / Departamento */}
+                          <button
+                            type="button"
+                            onClick={() => toggleMonthNodeExpression(deptKey)}
+                            className="w-full text-left p-4 hover:bg-brand-card-bright/10 flex items-center justify-between gap-4 transition-colors duration-150 border-b border-brand-border/25 cursor-pointer"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className={`text-brand-primary shrink-0 transition-transform duration-200 ${isDeptExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                <ChevronRight size={16} />
+                              </span>
+                              <div className="p-1 px-1.5 rounded bg-brand-primary/10 text-brand-primary border border-brand-primary/15">
+                                <Layers size={14} />
+                              </div>
+                              <div>
+                                <span className="font-extrabold text-[13px] text-white tracking-wide">{deptName}</span>
+                                <span className="text-[10px] text-brand-text-muted/60 font-medium ml-2 uppercase font-mono">
+                                  ({deptCompCount} {deptCompCount === 1 ? 'empresa' : 'empresas'})
+                                </span>
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4">
+                              <span className="font-mono text-xs font-black text-brand-primary bg-brand-primary/5 px-2 py-0.5 rounded border border-brand-primary/10">
+                                {formatSecondsToHms(deptItem.total_segundos)}
+                              </span>
+                            </div>
+                          </button>
+
+                          {/* Level 2: Empresas in Department */}
+                          {isDeptExpanded && (
+                            <div className="divide-y divide-brand-border/20 bg-black/15 font-sans">
+                              {Object.keys(deptItem.companies)
+                                .sort((a, b) => deptItem.companies[b].total_segundos - deptItem.companies[a].total_segundos)
+                                .map((compName) => {
+                                  const compItem = deptItem.companies[compName];
+                                  const compKey = `${deptKey}|comp:${compName}`;
+                                  const isCompExpanded = expandedMonthNodes.has(compKey);
+                                  const compShare = deptItem.total_segundos > 0
+                                    ? ((compItem.total_segundos / deptItem.total_segundos) * 100).toFixed(1)
+                                    : '0.0';
+
+                                  return (
+                                    <div key={compKey} className="transition-all">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleMonthNodeExpression(compKey)}
+                                        className="w-full text-left py-3 px-4 pl-10 hover:bg-brand-card-bright/20 flex items-center justify-between gap-4 transition-colors cursor-pointer"
+                                      >
+                                        <div className="flex items-center gap-2.5">
+                                          <span className={`text-brand-text-muted shrink-0 transition-transform duration-200 ${isCompExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                            <ChevronRight size={14} />
+                                          </span>
+                                          <Building2 size={14} className="text-emerald-400 shrink-0" />
+                                          <span className="font-bold text-xs text-white/90">{compName}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                            {compShare}% do setor
+                                          </span>
+                                          <span className="font-mono text-xs font-bold text-white/90">
+                                            {formatSecondsToHms(compItem.total_segundos)}
+                                          </span>
+                                        </div>
+                                      </button>
+
+                                      {/* Level 3: Cargos/Funções under Company */}
+                                      {isCompExpanded && (
+                                        <div className="divide-y divide-brand-border/10 bg-black/25">
+                                          {Object.keys(compItem.roles)
+                                            .sort((a, b) => compItem.roles[b].total_segundos - compItem.roles[a].total_segundos)
+                                            .map((roleName) => {
+                                              const roleItem = compItem.roles[roleName];
+                                              const roleKey = `${compKey}|role:${roleName}`;
+                                              const isRoleExpanded = expandedMonthNodes.has(roleKey);
+
+                                              return (
+                                                <div key={roleKey}>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleMonthNodeExpression(roleKey)}
+                                                    className="w-full text-left py-2.5 px-4 pl-16 hover:bg-brand-card-bright/20 flex items-center justify-between gap-4 transition-colors cursor-pointer"
+                                                  >
+                                                    <div className="flex items-center gap-2">
+                                                      <span className={`text-brand-text-muted/60 shrink-0 transition-transform duration-200 ${isRoleExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                                        <ChevronRight size={12} />
+                                                      </span>
+                                                      <UserCheck size={13} className="text-brand-primary shrink-0" />
+                                                      <span className="font-semibold text-xs text-white/80">{roleName}</span>
+                                                    </div>
+                                                    <span className="font-mono text-xs font-semibold text-white/80">
+                                                      {formatSecondsToHms(roleItem.total_segundos)}
+                                                    </span>
+                                                  </button>
+
+                                                  {/* Level 4: Colaboradores under Role */}
+                                                  {isRoleExpanded && (
+                                                    <div className="divide-y divide-brand-border/10 bg-black/35">
+                                                      {Object.keys(roleItem.collaborators)
+                                                        .sort((a, b) => roleItem.collaborators[b].total_segundos - roleItem.collaborators[a].total_segundos)
+                                                        .map((colabName) => {
+                                                          const colabItem = roleItem.collaborators[colabName];
+                                                          const colabKey = `${roleKey}|colab:${colabName}`;
+                                                          const isColabExpanded = expandedMonthNodes.has(colabKey);
+
+                                                          return (
+                                                            <div key={colabKey}>
+                                                              <button
+                                                                type="button"
+                                                                onClick={() => toggleMonthNodeExpression(colabKey)}
+                                                                className="w-full text-left py-2 px-4 pl-20 hover:bg-brand-card-bright/20 flex items-center justify-between gap-4 transition-colors cursor-pointer"
+                                                              >
+                                                                <div className="flex items-center gap-2">
+                                                                  <span className={`text-brand-text-muted/40 shrink-0 transition-transform duration-200 ${isColabExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                                                    <ChevronRight size={11} />
+                                                                  </span>
+                                                                  <User size={12} className="text-amber-400 shrink-0" />
+                                                                  <span className="font-medium text-[11px] text-white/75">{colabName}</span>
+                                                                </div>
+                                                                <span className="font-mono text-[11px] font-medium text-white/75">
+                                                                  {formatSecondsToHms(colabItem.total_segundos)}
+                                                                </span>
+                                                              </button>
+
+                                                              {/* Level 5: Tarefas under Colaborador */}
+                                                              {isColabExpanded && (
+                                                                <div className="bg-black/50 py-1.5 px-4 pl-26 space-y-1 divide-y divide-brand-border/10">
+                                                                  {Object.keys(colabItem.tasks)
+                                                                    .sort((a, b) => colabItem.tasks[b].total_segundos - colabItem.tasks[a].total_segundos)
+                                                                    .map((taskName) => {
+                                                                      const taskItem = colabItem.tasks[taskName];
+                                                                      return (
+                                                                        <div key={taskName} className="flex items-center justify-between py-1 text-[10px]">
+                                                                          <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                                                                            <CheckCircle2 size={11} className="text-brand-primary shrink-0" />
+                                                                            <span className="text-white/65 truncate">{taskName}</span>
+                                                                          </div>
+                                                                          <span className="font-mono text-white/70 font-semibold shrink-0">
+                                                                            {formatSecondsToHms(taskItem.total_segundos)}
+                                                                          </span>
+                                                                        </div>
+                                                                      );
+                                                                    })}
+                                                                </div>
+                                                              )}
+                                                            </div>
+                                                          );
+                                                        })}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-brand-border/60 bg-brand-card-light flex items-center justify-between text-[11px] text-brand-text-muted">
+              <span>Auditoria do mês finalizada com êxito.</span>
+              <button
+                type="button"
+                onClick={() => setSelectedMonthDetail(null)}
                 className="px-4 py-1.5 bg-brand-primary hover:bg-brand-primary-dark text-white font-bold rounded shadow-md cursor-pointer transition-transform active:scale-95"
               >
                 Voltar ao Dash Executivo

@@ -117,6 +117,60 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
   // Selected client IDs for filtering cards and charts
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
 
+  // Department filter state & available list
+  const [availableDepartments, setAvailableDepartments] = useState<{ id: string; nome: string }[]>([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('all');
+
+  // Discover available departments with billable appointments
+  useEffect(() => {
+    const discoverDepartments = async () => {
+      if (isSupabaseConfigured && supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('vw_apontamento_mensal_resumo')
+            .select('depto_id, depto_nome')
+            .eq('depto_calcula_sn', true);
+
+          if (!error && data) {
+            const map = new Map<string, string>();
+            data.forEach((row: any) => {
+              if (row.depto_id !== undefined && row.depto_id !== null && row.depto_nome) {
+                map.set(String(row.depto_id), String(row.depto_nome).trim());
+              }
+            });
+            const list = Array.from(map.entries())
+              .map(([id, nome]) => ({ id, nome }))
+              .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+            if (list.length > 0) {
+              setAvailableDepartments(list);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error('Error discovering departments:', err);
+        }
+      }
+      // Fallback departments if Supabase returns empty or offline
+      const fallbackDepts = [
+        { id: 'FISCAL', nome: 'FISCAL' },
+        { id: 'CONTÁBIL', nome: 'CONTÁBIL' },
+        { id: 'DP', nome: 'DP / PESSOAL' },
+        { id: 'REGISTRO', nome: 'REGISTRO' },
+        { id: 'FINANCEIRO', nome: 'FINANCEIRO' },
+        { id: 'TI', nome: 'TI / SISTEMAS' }
+      ];
+      setAvailableDepartments(fallbackDepts);
+    };
+
+    discoverDepartments();
+  }, [refreshTrigger]);
+
+  const selectedDepartmentName = useMemo(() => {
+    if (selectedDepartmentId === 'all') return 'Todos os Departamentos';
+    const found = availableDepartments.find(d => String(d.id) === String(selectedDepartmentId));
+    return found ? found.nome : selectedDepartmentId;
+  }, [selectedDepartmentId, availableDepartments]);
+
   // Discover period options
   useEffect(() => {
     const discoverPeriods = async () => {
@@ -349,6 +403,10 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
               query = query.in('empresa_id', Array.from(selectedClientIds));
             }
 
+            if (selectedDepartmentId !== 'all') {
+              query = query.eq('depto_id', selectedDepartmentId);
+            }
+
             query = query
               .order('aponta_ano', { ascending: true })
               .order('aponta_mes', { ascending: true })
@@ -382,6 +440,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
 
           const validChartFetched = allChartFetched.filter((row: any) => 
             targetSet.has(`${row.aponta_ano}-${row.aponta_mes}`) &&
+            (selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId) || row.depto_nome === selectedDepartmentName || row.departamento === selectedDepartmentName) &&
             (row.depto_calcula_sn === true || 
             row.depto_calcula_sn === 'S' || 
             row.depto_calcula_sn === 's' || 
@@ -429,7 +488,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
     };
 
     fetchChartData();
-  }, [startPeriod, endPeriod, periodsInInterval, availablePeriods, refreshTrigger, selectedClientIds]);
+  }, [startPeriod, endPeriod, periodsInInterval, availablePeriods, refreshTrigger, selectedClientIds, selectedDepartmentId, selectedDepartmentName]);
 
   // Fetch current period data & honorarios from database
   useEffect(() => {
@@ -470,6 +529,10 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
               query = query.in('empresa_id', Array.from(selectedClientIds));
             }
 
+            if (selectedDepartmentId !== 'all') {
+              query = query.eq('depto_id', selectedDepartmentId);
+            }
+
             query = query
               .order('aponta_ano', { ascending: true })
               .order('aponta_mes', { ascending: true })
@@ -481,7 +544,11 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
 
           if (data && data.length > 0) {
             const validSet = new Set(periodsInt.map(p => `${p.ano}-${p.mes}`));
-            const filteredData = data.filter((row: any) => validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined));
+            const filteredData = data.filter((row: any) => 
+              validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && 
+              (selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId) || row.depto_nome === selectedDepartmentName || row.departamento === selectedDepartmentName) && 
+              (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined)
+            );
 
             filteredData.forEach((row: any) => {
               const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
@@ -571,7 +638,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
       }
     };
     fetchData();
-  }, [periodsInInterval, isSupabaseConfigured, supabase, refreshTrigger]);
+  }, [periodsInInterval, isSupabaseConfigured, supabase, refreshTrigger, selectedClientIds, selectedDepartmentId, selectedDepartmentName]);
 
   // Fetch previous year data dynamically based on the exact periods selected
   useEffect(() => {
@@ -621,6 +688,10 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
             query = query.in('empresa_id', Array.from(selectedClientIds));
           }
 
+          if (selectedDepartmentId !== 'all') {
+            query = query.eq('depto_id', selectedDepartmentId);
+          }
+
           query = query
             .order('aponta_ano', { ascending: true })
             .order('aponta_mes', { ascending: true })
@@ -632,7 +703,11 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
 
           if (data && data.length > 0) {
             const validSet = new Set(periodsInt.map(p => `${p.ano}-${p.mes}`));
-            const filteredData = data.filter((row: any) => validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined));
+            const filteredData = data.filter((row: any) => 
+              validSet.has(`${row.aponta_ano}-${row.aponta_mes}`) && 
+              (selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId) || row.depto_nome === selectedDepartmentName || row.departamento === selectedDepartmentName) && 
+              (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined)
+            );
 
             filteredData.forEach((row: any) => {
               const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
@@ -682,7 +757,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
       }
     };
     fetchPreviousYearMetrics();
-  }, [prevYearPeriodsInInterval, refreshTrigger, selectedClientIds]);
+  }, [prevYearPeriodsInInterval, refreshTrigger, selectedClientIds, selectedDepartmentId, selectedDepartmentName]);
 
   // Aggregate current metrics
   const currentMetrics = useMemo(() => {
@@ -692,6 +767,12 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
 
     apontamentosData.forEach(item => {
       if (selectedClientIds.size > 0 && (!item.cliente_id || !selectedClientIds.has(item.cliente_id))) {
+        return;
+      }
+      if (selectedDepartmentId !== 'all' && 
+          String(item.departamento_id) !== String(selectedDepartmentId) && 
+          item.departamento !== selectedDepartmentId && 
+          item.departamento !== selectedDepartmentName) {
         return;
       }
       if (item.cliente_id) distinctClients.add(item.cliente_id);
@@ -704,7 +785,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
       totalSeconds,
       totalValorLacto
     };
-  }, [apontamentosData, selectedClientIds]);
+  }, [apontamentosData, selectedClientIds, selectedDepartmentId, selectedDepartmentName]);
 
   // Pre-aggregate honorarios by client code / group_raiz
   const honorariosByGrupoRaiz = useMemo(() => {
@@ -746,6 +827,12 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
     const groupedMap = new Map<string, any>();
     
     apontamentosData.forEach(item => {
+      if (selectedDepartmentId !== 'all' && 
+          String(item.departamento_id) !== String(selectedDepartmentId) && 
+          item.departamento !== selectedDepartmentId && 
+          item.departamento !== selectedDepartmentName) {
+        return;
+      }
       const clientId = item.cliente_id || item.nome || 'Sem ID';
       const clientName = item.nome || 'Sem Nome';
       const gRaiz = getGrupoRaiz(item.tipo_pessoa || 'PJ', item.documento || '');
@@ -770,7 +857,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
     });
 
     return Array.from(groupedMap.values());
-  }, [apontamentosData]);
+  }, [apontamentosData, selectedDepartmentId, selectedDepartmentName]);
 
   // Compute rankings/scores dynamically (Score format: Position Hours/Position Value)
   const clientRankings = useMemo(() => {
@@ -1449,6 +1536,10 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
           query = query.in('empresa_id', Array.from(selectedClientIds));
         }
 
+        if (selectedDepartmentId !== 'all') {
+          query = query.eq('depto_id', selectedDepartmentId);
+        }
+
         query = query
           .order('aponta_ano', { ascending: true })
           .order('aponta_mes', { ascending: true })
@@ -1459,7 +1550,10 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
         if (error) throw error;
 
         if (data && data.length > 0) {
-          const validData = data.filter((row: any) => row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined);
+          const validData = data.filter((row: any) => 
+            (selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId) || row.depto_nome === selectedDepartmentName || row.departamento === selectedDepartmentName) && 
+            (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined)
+          );
           validData.forEach((row: any) => {
             const rKey = `${row.aponta_ano}-${row.aponta_mes}-${row.empresa_id}-${row.depto_id}`;
             if (!seenModalKeys.has(rKey)) {
@@ -1575,8 +1669,13 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
         <div className="bg-brand-card p-6 rounded-lg border border-brand-border shadow-lg" id="hours-chart-module">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-brand-border/40 mb-6">
             <div>
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Acompanhamento de Horas (12 Meses)</span>
+                {selectedDepartmentId !== 'all' && (
+                  <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 rounded-full uppercase">
+                    {selectedDepartmentName}
+                  </span>
+                )}
                 <span className="text-[10px] font-normal text-brand-primary bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded-full">
                   Clique na barra para detalhar
                 </span>
@@ -1823,6 +1922,102 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
         </div>
       </header>
 
+      {/* Global Filters Bar: Departamento & Período */}
+      <div className="bg-brand-card p-4 rounded-xl border border-brand-border shadow-lg flex flex-wrap items-center justify-between gap-4 animate-fade-in" id="global-dashboard-filters">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Filtro por Departamento */}
+          <div className={`flex items-center gap-2 bg-brand-bg/80 border py-2 px-3.5 rounded-lg text-xs transition-colors ${
+            selectedDepartmentId !== 'all' ? 'border-sky-500/50 bg-sky-950/20 shadow-[0_0_12px_rgba(56,189,248,0.15)]' : 'border-brand-border'
+          }`}>
+            <Briefcase size={15} className={selectedDepartmentId !== 'all' ? 'text-sky-400' : 'text-brand-primary'} />
+            <span className="text-[10px] uppercase tracking-wider font-bold text-brand-text-muted/80">Departamento:</span>
+            <select
+              value={selectedDepartmentId}
+              onChange={(e) => setSelectedDepartmentId(e.target.value)}
+              className="bg-brand-card-bright text-white border-0 py-1 pl-2 pr-7 rounded font-extrabold text-xs tracking-wide outline-none cursor-pointer uppercase focus:ring-1 focus:ring-sky-400 min-w-[200px]"
+            >
+              <option value="all">TODOS OS DEPARTAMENTOS</option>
+              {availableDepartments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filtro por Período */}
+          <div className="flex items-center gap-2 bg-brand-bg/80 border border-brand-border py-2 px-3.5 rounded-lg text-xs text-brand-text-muted font-semibold">
+            <div className="flex items-center gap-2 shrink-0">
+              <Calendar size={15} className="text-brand-primary shrink-0" />
+              <span className="text-[10px] uppercase tracking-wider font-bold text-brand-text-muted/80">Período:</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] text-brand-text-muted/60 font-bold uppercase tracking-wide">DE</span>
+              <select
+                value={startPeriod}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStartPeriod(val);
+                  if (val > endPeriod) setEndPeriod(val);
+                }}
+                className="bg-brand-card-bright text-white border-0 py-1 pl-2 pr-6 rounded font-extrabold text-xs tracking-wider outline-none cursor-pointer uppercase"
+              >
+                {availablePeriods.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+
+              <span className="text-[10px] text-brand-text-muted/60 font-bold uppercase tracking-wide ml-1">ATÉ</span>
+              <select
+                value={endPeriod}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setEndPeriod(val);
+                  if (val < startPeriod) setStartPeriod(val);
+                }}
+                className="bg-brand-card-bright text-white border-0 py-1 pl-2 pr-6 rounded font-extrabold text-xs tracking-wider outline-none cursor-pointer uppercase"
+              >
+                {availablePeriods.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Active Filters Badges / Quick Reset */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {selectedDepartmentId !== 'all' && (
+            <div className="flex items-center gap-2 bg-sky-500/15 border border-sky-500/40 text-sky-300 px-3 py-1.5 rounded-lg text-xs font-bold animate-fade-in shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+              <span>Depto Ativo: <strong>{selectedDepartmentName}</strong></span>
+              <button
+                type="button"
+                onClick={() => setSelectedDepartmentId('all')}
+                className="hover:text-white transition-colors cursor-pointer ml-1 p-0.5 rounded hover:bg-sky-500/20"
+                title="Remover filtro de departamento"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+          {selectedClientIds.size > 0 && (
+            <div className="flex items-center gap-2 bg-amber-500/15 border border-amber-500/40 text-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold animate-fade-in shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
+              <span>{selectedClientIds.size} {selectedClientIds.size === 1 ? 'cliente selecionado' : 'clientes selecionados'}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedClientIds(new Set())}
+                className="hover:text-white transition-colors cursor-pointer ml-1 p-0.5 rounded hover:bg-amber-500/20"
+                title="Limpar seleção de clientes"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* 2 Top KPI Cards */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in" id="kpis-novo-dash">
         
@@ -1830,10 +2025,17 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
         <div className="bg-brand-card rounded-lg p-6 border border-brand-border border-l-4 border-l-brand-accent relative overflow-hidden group shadow-md transition-all duration-200 hover:border-brand-primary/20 flex flex-col justify-between">
           <div className="relative z-10 flex flex-col justify-between h-full">
             <div>
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold tracking-wider text-brand-text-muted/80 uppercase block">
-                  Empresas Distintas ({currentLabel})
-                </span>
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold tracking-wider text-brand-text-muted/80 uppercase block">
+                    Empresas Distintas ({currentLabel})
+                  </span>
+                  {selectedDepartmentId !== 'all' && (
+                    <span className="text-[9px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30 px-1.5 py-0.2 rounded uppercase">
+                      {selectedDepartmentName}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[9px] font-mono bg-brand-primary/10 text-brand-primary px-1.5 py-0.5 rounded border border-brand-primary/20">
                   Real-Time
                 </span>
@@ -1862,10 +2064,17 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
         <div className="bg-brand-card rounded-lg p-6 border border-brand-border border-l-4 border-l-brand-accent relative overflow-hidden group shadow-md transition-all duration-200 hover:border-brand-primary/20 flex flex-col justify-between">
           <div className="relative z-10 flex flex-col justify-between h-full">
             <div>
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold tracking-wider text-brand-text-muted/80 uppercase block">
-                  Total de Horas ({currentLabel})
-                </span>
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold tracking-wider text-brand-text-muted/80 uppercase block">
+                    Total de Horas ({currentLabel})
+                  </span>
+                  {selectedDepartmentId !== 'all' && (
+                    <span className="text-[9px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30 px-1.5 py-0.2 rounded uppercase">
+                      {selectedDepartmentName}
+                    </span>
+                  )}
+                </div>
                 <span className="text-[9px] font-mono bg-brand-primary/10 text-brand-primary px-1.5 py-0.5 rounded border border-brand-primary/20">
                   Real-Time
                 </span>
@@ -1900,11 +2109,16 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
         {/* Module Title and Filter Header */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-6 border-b border-brand-border/40">
           <div>
-            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-              Horas por Empresa e Grupo
+            <h3 className="text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+              <span>Horas por Empresa e Grupo</span>
               <span className="text-[11px] font-semibold bg-brand-accent/20 text-brand-primary border border-brand-accent/30 py-0.5 px-2.5 rounded-full">
                 {hoursViewMode === 'grupo' ? filteredGroupsData.length : filteredTempoCli.length} registros
               </span>
+              {selectedDepartmentId !== 'all' && (
+                <span className="text-[10px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30 py-0.5 px-2 rounded-full uppercase">
+                  {selectedDepartmentName}
+                </span>
+              )}
             </h3>
             <p className="text-xs text-brand-text-muted/80 mt-1">
               Visualização consolidada baseada nos lançamentos e faturamento das horas trabalhadas
@@ -1930,7 +2144,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
             </div>
             
             {/* Search */}
-            <div className="relative w-full sm:w-60">
+            <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-text-muted/50" size={14} />
               <input
                 type="text"
@@ -1949,63 +2163,23 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                 </button>
               )}
             </div>
-
-            {/* Period select drop-downs */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-brand-bg/60 border border-brand-border py-1.5 px-3 rounded text-xs text-brand-text-muted font-semibold">
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse inline-block shrink-0" />
-                <span className="text-[10px] uppercase tracking-wider font-bold text-brand-text-muted/80">Período:</span>
-                {isLoading && <RefreshCw size={11} className="animate-spin text-brand-primary shrink-0" />}
-              </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] text-brand-text-muted/60 font-bold uppercase tracking-wide">DE</span>
-                <select
-                  value={startPeriod}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setStartPeriod(val);
-                    if (val > endPeriod) setEndPeriod(val);
-                  }}
-                  className="bg-brand-card-bright text-white border-0 py-1 pl-2 pr-6 rounded font-extrabold text-[11px] tracking-wider outline-none cursor-pointer uppercase"
-                >
-                  {availablePeriods.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
-
-                <span className="text-[10px] text-brand-text-muted/60 font-bold uppercase tracking-wide ml-1">ATÉ</span>
-                <select
-                  value={endPeriod}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setEndPeriod(val);
-                    if (val < startPeriod) setStartPeriod(val);
-                  }}
-                  className="bg-brand-card-bright text-white border-0 py-1 pl-2 pr-6 rounded font-extrabold text-[11px] tracking-wider outline-none cursor-pointer uppercase"
-                >
-                  {availablePeriods.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
           </div>
         </div>
 
         {selectedClientIds.size > 0 && (
-          <div className="mt-4 flex items-center justify-between bg-brand-primary/10 border border-brand-primary/30 rounded-lg p-3.5 text-xs animate-fade-in">
+          <div className="mt-4 flex items-center justify-between bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs animate-fade-in">
             <div className="flex items-center gap-2 text-white font-medium">
-              <span className="w-2 h-2 rounded-full bg-brand-primary animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-amber-400" />
               <span>
-                Filtro Ativo: <strong>{selectedClientIds.size}</strong> {selectedClientIds.size === 1 ? 'empresa selecionada' : 'empresas selecionadas'}. Cards de KPI e Gráfico estão filtrados de acordo.
+                Filtro de Empresas: <strong>{selectedClientIds.size}</strong> {selectedClientIds.size === 1 ? 'empresa selecionada' : 'empresas selecionadas'}. Cards de KPI e Gráfico estão sincronizados.
               </span>
             </div>
             <button
               type="button"
               onClick={() => setSelectedClientIds(new Set())}
-              className="px-2.5 py-1 bg-brand-primary/20 hover:bg-brand-primary/35 border border-brand-primary/40 text-brand-primary hover:text-white rounded transition-all font-bold uppercase tracking-wide text-[10px] cursor-pointer"
+              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/35 border border-amber-500/40 text-amber-300 hover:text-white rounded transition-all font-bold uppercase tracking-wide text-[10px] cursor-pointer"
             >
-              Limpar Filtro
+              Limpar Seleção
             </button>
           </div>
         )}
@@ -2743,6 +2917,14 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                   </span>
                   <span className="text-brand-text-muted/40">•</span>
                   <span>Quebra por Setor/Área e Empresas</span>
+                  {selectedDepartmentId !== 'all' && (
+                    <>
+                      <span className="text-brand-text-muted/40">•</span>
+                      <span className="text-sky-400 font-bold uppercase bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/30">
+                        Depto: {selectedDepartmentName}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
               <button 

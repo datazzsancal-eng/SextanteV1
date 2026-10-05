@@ -258,6 +258,28 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
     return Math.max(...hoursHistoryData.map(d => d.value), 3600);
   }, [hoursHistoryData]);
 
+  // Average hours value across the 12 months
+  const avgHoursVal = useMemo(() => {
+    if (hoursHistoryData.length === 0) return 0;
+    const total = hoursHistoryData.reduce((acc, curr) => acc + curr.value, 0);
+    return Math.round(total / hoursHistoryData.length);
+  }, [hoursHistoryData]);
+
+  // Average hours value across only the selected periods
+  const avgSelectedHoursVal = useMemo(() => {
+    const selected = hoursHistoryData.filter(d => d.active);
+    if (selected.length === 0) return 0;
+    const total = selected.reduce((acc, curr) => acc + curr.value, 0);
+    return Math.round(total / selected.length);
+  }, [hoursHistoryData]);
+
+  // Active periods index range for drawing the selected average line segment
+  const activeRange = useMemo(() => {
+    const first = hoursHistoryData.findIndex(d => d.active);
+    const last = hoursHistoryData.map(d => d.active).lastIndexOf(true);
+    return { first, last, count: hoursHistoryData.filter(d => d.active).length };
+  }, [hoursHistoryData]);
+
   // Fetch historical 12-month chart data (Acompanhamento de Horas) from viw_resumo_hora_mes
   useEffect(() => {
     const fetchChartData = async () => {
@@ -1389,7 +1411,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
       <>
         {/* Acompanhamento de Horas Custom Chart - Full Width */}
         <div className="bg-brand-card p-6 rounded-lg border border-brand-border shadow-lg" id="hours-chart-module">
-          <div className="flex items-center justify-between pb-6 border-b border-brand-border/40 mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-brand-border/40 mb-6">
             <div>
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <span>Acompanhamento de Horas (12 Meses)</span>
@@ -1397,11 +1419,26 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                   Clique na barra para detalhar
                 </span>
               </h3>
-              <p className="text-xs text-brand-text-muted">Total consolidado de apontamentos nos últimos 12 meses — clique em um mês para abrir a quebra por Setor e Empresa</p>
+              <p className="text-xs text-brand-text-muted">Total consolidado de apontamentos nos últimos 12 meses com linhas de média geral e do período selecionado</p>
             </div>
             
-            <div className="text-right text-xs bg-brand-bg py-1.5 px-3 rounded border border-brand-border text-brand-primary font-bold">
-              Total 12M: {formatSecondsToHms(hoursHistoryData.reduce((acc, curr) => acc + curr.value, 0))}
+            <div className="flex items-center gap-2 sm:gap-3 self-end sm:self-auto flex-wrap">
+              <div className="text-right text-xs bg-brand-bg py-1.5 px-3 rounded border border-brand-border text-brand-text font-bold">
+                <span className="text-brand-text-muted font-normal mr-1.5">Total 12M:</span>
+                <span className="text-white font-mono">{formatSecondsToHms(hoursHistoryData.reduce((acc, curr) => acc + curr.value, 0))}</span>
+              </div>
+              <div className="text-right text-xs bg-amber-500/10 py-1.5 px-3 rounded border border-amber-500/30 text-amber-400 font-bold flex items-center gap-1.5 shadow-sm">
+                <span className="w-2.5 h-0.5 border-t-2 border-dashed border-amber-400 inline-block" />
+                <span className="text-amber-300/80 font-normal mr-1">Média 12M:</span>
+                <span className="font-mono">{formatSecondsToHms(avgHoursVal)}</span>
+              </div>
+              {avgSelectedHoursVal > 0 && (
+                <div className="text-right text-xs bg-sky-500/10 py-1.5 px-3 rounded border border-sky-500/30 text-sky-400 font-bold flex items-center gap-1.5 shadow-sm">
+                  <span className="w-2.5 h-0.5 bg-sky-400 inline-block shadow-[0_0_4px_#38bdf8]" />
+                  <span className="text-sky-300/80 font-normal mr-1">Média Sel ({activeRange.count}M):</span>
+                  <span className="font-mono">{formatSecondsToHms(avgSelectedHoursVal)}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1435,6 +1472,66 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                   {formatSecondsToHms(Math.floor(maxHoursVal * 0.33))}
                 </div>
 
+                {/* 12-Month Average Line crossing all bars at the average height */}
+                {avgHoursVal > 0 && (
+                  <div 
+                    className="absolute inset-x-0 z-20 pointer-events-none flex items-center"
+                    style={{ bottom: `${28 + (avgHoursVal / maxHoursVal) * 180}px` }}
+                  >
+                    {/* Left indicator tag */}
+                    <div className="absolute left-2 sm:left-6 -translate-y-1/2 bg-amber-500/20 backdrop-blur-md border border-amber-500/50 text-amber-400 text-[9px] font-mono font-bold px-2 py-0.5 rounded shadow-lg z-30 pointer-events-auto hidden sm:flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                      <span>MÉDIA 12M</span>
+                    </div>
+
+                    {/* Horizontal line crossing all bars */}
+                    <div className="w-full border-t-2 border-dashed border-amber-400/90 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
+
+                    {/* Right average badge */}
+                    <div 
+                      className="absolute right-2 sm:right-6 -translate-y-1/2 bg-amber-500 text-slate-950 font-bold text-[10px] font-mono px-2 py-0.5 rounded shadow-lg border border-amber-300 z-30 pointer-events-auto cursor-help flex items-center gap-1"
+                      title={`Média calculada dos últimos 12 meses: ${formatSecondsToHms(avgHoursVal)} (${(avgHoursVal / 3600).toFixed(2)}h)`}
+                    >
+                      <span className="font-extrabold uppercase text-[9px] tracking-wider sm:inline hidden">Média 12M:</span>
+                      <span className="font-black">{formatSecondsToHms(avgHoursVal)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Linha da Média dos Períodos Selecionados (apenas nos períodos selecionados) */}
+                {avgSelectedHoursVal > 0 && activeRange.first !== -1 && activeRange.last !== -1 && (
+                  <div 
+                    className="absolute inset-x-2 sm:inset-x-6 z-25 pointer-events-none"
+                    style={{ bottom: `${28 + (avgSelectedHoursVal / maxHoursVal) * 180}px` }}
+                  >
+                    <div 
+                      className="absolute flex items-center"
+                      style={{
+                        left: `${(activeRange.first / hoursHistoryData.length) * 100}%`,
+                        width: `${((activeRange.last - activeRange.first + 1) / hoursHistoryData.length) * 100}%`
+                      }}
+                    >
+                      {/* Ponto inicial */}
+                      <span className="w-2 h-2 rounded-full bg-sky-400 border border-white shadow-[0_0_8px_#38bdf8] shrink-0 -ml-1 z-35" />
+
+                      {/* Linha cruzando apenas as barras selecionadas */}
+                      <div className="flex-1 border-t-2 border-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.9)]" />
+
+                      {/* Ponto final */}
+                      <span className="w-2 h-2 rounded-full bg-sky-400 border border-white shadow-[0_0_8px_#38bdf8] shrink-0 -mr-1 z-35" />
+
+                      {/* Badge sobre a média selecionada */}
+                      <div 
+                        className="absolute -top-4 left-1/2 -translate-x-1/2 bg-sky-500 text-slate-950 font-bold text-[9px] font-mono px-2 py-0.5 rounded shadow-lg border border-sky-300 whitespace-nowrap z-35 pointer-events-auto cursor-help flex items-center gap-1"
+                        title={`Média dos períodos selecionados (${activeRange.count} ${activeRange.count === 1 ? 'mês' : 'meses'}): ${formatSecondsToHms(avgSelectedHoursVal)} (${(avgSelectedHoursVal / 3600).toFixed(2)}h)`}
+                      >
+                        <span className="font-extrabold uppercase text-[8px] tracking-wider">Média Sel ({activeRange.count}M):</span>
+                        <span className="font-black">{formatSecondsToHms(avgSelectedHoursVal)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Dynamic SVG bar mappings */}
                 {hoursHistoryData.map((data, index) => {
                   const heightPercent = Math.min((data.value / maxHoursVal) * 100, 100);
@@ -1451,9 +1548,27 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                       title={`Clique para ver detalhamento do mês ${data.fullLabel || data.label}`}
                     >
                       {/* Hover state Popover Value tooltip */}
-                      <div className="absolute -top-12 scale-0 group-hover/bar:scale-100 transition-all duration-150 origin-bottom bg-brand-card-bright border border-brand-primary/40 py-1.5 px-3 rounded text-xs text-white font-mono font-bold shadow-2xl z-20 whitespace-nowrap">
-                        <div className="text-[9px] text-brand-primary uppercase font-extrabold tracking-wider mb-0.5 text-center">Total Horas</div>
-                        <div className="text-sm font-black text-white">{data.hms}</div>
+                      <div className="absolute -top-16 scale-0 group-hover/bar:scale-100 transition-all duration-150 origin-bottom bg-brand-card-bright border border-brand-primary/40 py-1.5 px-3 rounded text-xs text-white font-mono font-bold shadow-2xl z-30 whitespace-nowrap pointer-events-none">
+                        <div className="text-[9px] text-brand-primary uppercase font-extrabold tracking-wider mb-0.5 text-center">{data.fullLabel || data.label}</div>
+                        <div className="text-sm font-black text-white text-center">{data.hms}</div>
+                        {avgHoursVal > 0 && (
+                          <div className={`text-[9px] font-semibold mt-1 pt-1 border-t border-brand-border/40 text-center flex items-center justify-center gap-1 ${
+                            data.value >= avgHoursVal ? 'text-emerald-400' : 'text-amber-400'
+                          }`}>
+                            <span>{data.value >= avgHoursVal ? '▲' : '▼'}</span>
+                            <span>{data.value >= avgHoursVal ? '+' : '-'}{formatSecondsToHms(Math.abs(data.value - avgHoursVal))}</span>
+                            <span className="text-brand-text-muted font-normal text-[8px]">vs 12M</span>
+                          </div>
+                        )}
+                        {data.active && avgSelectedHoursVal > 0 && activeRange.count > 1 && (
+                          <div className={`text-[9px] font-semibold pt-0.5 text-center flex items-center justify-center gap-1 ${
+                            data.value >= avgSelectedHoursVal ? 'text-sky-300' : 'text-sky-400'
+                          }`}>
+                            <span>{data.value >= avgSelectedHoursVal ? '▲' : '▼'}</span>
+                            <span>{data.value >= avgSelectedHoursVal ? '+' : '-'}{formatSecondsToHms(Math.abs(data.value - avgSelectedHoursVal))}</span>
+                            <span className="text-brand-text-muted font-normal text-[8px]">vs média sel</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Display value top of each bar */}
@@ -1491,7 +1606,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
             )}
 
             {/* Bottom Chart Indicator details */}
-            <div className="flex items-center justify-center gap-6 mt-6 pt-4 border-t border-brand-border/40 text-xs">
+            <div className="flex flex-wrap items-center justify-center gap-6 mt-6 pt-4 border-t border-brand-border/40 text-xs">
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded bg-[#2e2e2e] border border-brand-border inline-block" />
                 <span className="text-brand-text-muted">Histórico consolidado</span>
@@ -1500,6 +1615,16 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                 <span className="w-3.5 h-3.5 rounded bg-gradient-to-b from-brand-primary to-brand-accent border border-brand-primary inline-block animate-pulse" />
                 <span className="text-white font-semibold font-mono">Filtro Geral Ativo</span>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="w-4 h-0.5 border-t-2 border-dashed border-amber-400 inline-block" />
+                <span className="text-amber-400 font-semibold font-mono">Média 12M ({formatSecondsToHms(avgHoursVal)})</span>
+              </div>
+              {avgSelectedHoursVal > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-4 h-0.5 bg-sky-400 inline-block shadow-[0_0_4px_#38bdf8]" />
+                  <span className="text-sky-400 font-semibold font-mono">Média Período Sel ({formatSecondsToHms(avgSelectedHoursVal)})</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

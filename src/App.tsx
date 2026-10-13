@@ -10,6 +10,7 @@ import CadastrosView from './components/CadastrosView';
 import HonorariosView from './components/HonorariosView';
 import NovoDashView from './components/NovoDashView';
 import DashLiderancaView from './components/DashLiderancaView';
+import AnalisesView from './components/AnalisesView';
 import LoginView from './components/LoginView';
 
 import {
@@ -543,6 +544,10 @@ export default function App() {
 
           {currentTab === 'dashlideranca' && (
             <DashLiderancaView />
+          )}
+
+          {currentTab === 'analises' && (
+            <AnalisesView />
           )}
 
           {currentTab === 'carga' && (

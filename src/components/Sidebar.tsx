@@ -8,6 +8,7 @@ import {
   Users, 
   Settings, 
   Activity, 
+  BarChart3,
   ChevronRight,
   ChevronLeft,
   ShieldCheck,
@@ -64,9 +65,10 @@ export default function Sidebar({
       { id: 'novodash', label: 'Dash Executivo', icon: LayoutDashboard },
       { id: 'dashlideranca', label: 'Dash Lideres', icon: LayoutDashboard },
       { id: 'honorarios', label: 'Honorários', icon: Coins },
+      { id: 'analises', label: 'Análises', icon: BarChart3 },
     ];
     if (isLider) {
-      return items.filter(item => item.id === 'dashlideranca');
+      return items.filter(item => item.id === 'dashlideranca' || item.id === 'analises');
     }
     return items;
   }, [isLider]);

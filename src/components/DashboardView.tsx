@@ -220,11 +220,12 @@ export default function DashboardView({
       for (const row of allData) {
         const deptName = row.setor || 'Sem Departamento';
         if (!deptsMap.has(deptName)) {
-          deptsMap.set(deptName, { setor: deptName, tempo_segundos: 0, valor_lacto: 0, clientesMap: new Map() });
+          deptsMap.set(deptName, { setor: deptName, tempo_segundos: 0, valor_lacto: 0, count: 0, clientesMap: new Map() });
         }
         const d = deptsMap.get(deptName);
         d.tempo_segundos += (row.tempo_segundos || 0);
         d.valor_lacto += (row.valor_lacto || 0);
+        d.count += 1;
         
         if (!d.clientesMap.has(row.cliente_nome)) {
           d.clientesMap.set(row.cliente_nome, { cliente_nome: row.cliente_nome, tempo_segundos: 0, valor_lacto: 0 });
@@ -239,6 +240,7 @@ export default function DashboardView({
         setor: d.setor,
         tempo_segundos: d.tempo_segundos,
         valor_lacto: d.valor_lacto,
+        count: d.count,
         clientes: Array.from(d.clientesMap.values()).sort((a: any, b: any) => b.tempo_segundos - a.tempo_segundos)
       })).sort((a: any, b: any) => b.tempo_segundos - a.tempo_segundos);
       

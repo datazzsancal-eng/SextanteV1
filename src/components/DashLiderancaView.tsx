@@ -982,17 +982,18 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
 
   // Group Department details (calculated instantly in memory from raw data)
   const getGroupDeptData = (groupName: string) => {
-    const map = new Map<string, { setor: string; tempo_segundos: number; valor_lacto: number; clientes: any[] }>();
+    const map = new Map<string, { setor: string; tempo_segundos: number; valor_lacto: number; count: number; clientes: any[] }>();
     const groupRecords = apontamentosData.filter(row => (row.grupo_nome || 'Sem Grupo') === groupName);
 
     groupRecords.forEach(row => {
       const dept = row.departamento || 'SEM DEPARTAMENTO';
       if (!map.has(dept)) {
-        map.set(dept, { setor: dept, tempo_segundos: 0, valor_lacto: 0, clientes: [] });
+        map.set(dept, { setor: dept, tempo_segundos: 0, valor_lacto: 0, count: 0, clientes: [] });
       }
       const current = map.get(dept)!;
       current.tempo_segundos += (row.qtde_segundos || 0);
       current.valor_lacto += (row.valor_lancamento || 0);
+      current.count += 1;
 
       // Unique clients in department
       if (!current.clientes.some((c: any) => c.cliente_nome === row.nome)) {

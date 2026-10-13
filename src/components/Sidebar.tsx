@@ -113,7 +113,7 @@ export default function Sidebar({
   return (
     <aside 
       id="sextante-sidebar"
-      className={`sticky top-0 h-screen bg-brand-bg border-r border-brand-border flex flex-col shrink-0 transition-all duration-300 ease-in-out relative ${
+      className={`sticky top-0 h-screen bg-brand-bg border-r border-brand-border flex flex-col shrink-0 transition-all duration-300 ease-in-out relative z-[100] ${
         isCollapsed ? 'w-20' : 'w-64'
       }`}
     >
@@ -121,7 +121,7 @@ export default function Sidebar({
       <button
         id="sidebar-collapse-toggle"
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute right-0 top-8 w-6 h-6 rounded-full bg-brand-accent hover:bg-brand-primary text-white flex items-center justify-center cursor-pointer border border-brand-border shadow-lg transition-all hover:scale-110 active:scale-95 z-50 translate-x-1/2"
+        className="absolute right-0 top-8 w-6 h-6 rounded-full bg-brand-accent hover:bg-brand-primary text-white flex items-center justify-center cursor-pointer border border-brand-border shadow-lg transition-all hover:scale-110 active:scale-95 z-[110] translate-x-1/2"
         title={isCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
       >
         {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}

@@ -941,17 +941,18 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
 
   // Client Department details (calculated instantly in memory from raw data)
   const getClientDeptData = (clientName: string) => {
-    const map = new Map<string, { setor: string; total_segundos: number; valor_lacto: number }>();
+    const map = new Map<string, { setor: string; total_segundos: number; valor_lacto: number; count: number }>();
     const clientRecords = apontamentosData.filter(item => item.nome === clientName);
     
     clientRecords.forEach(row => {
       const dept = row.departamento || 'SEM DEPARTAMENTO';
       if (!map.has(dept)) {
-        map.set(dept, { setor: dept, total_segundos: 0, valor_lacto: 0 });
+        map.set(dept, { setor: dept, total_segundos: 0, valor_lacto: 0, count: 0 });
       }
       const current = map.get(dept)!;
       current.total_segundos += (row.qtde_segundos || 0);
       current.valor_lacto += (row.valor_lancamento || 0);
+      current.count += 1;
     });
 
     return Array.from(map.values()).sort((a, b) => b.total_segundos - a.total_segundos);
@@ -1000,7 +1001,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
         cliente_nome: string;
         total_segundos: number;
         valor_lacto: number;
-        tasks: { tarefa: string; total_segundos: number; valor_lacto: number }[];
+        tasks: { tarefa: string; total_segundos: number; valor_lacto: number; count: number }[];
       }>;
     }> = {};
     
@@ -1036,8 +1037,9 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
       if (existingTask) {
         existingTask.total_segundos += secs;
         existingTask.valor_lacto += val;
+        existingTask.count += 1;
       } else {
-        taskArr.push({ tarefa: taskName, total_segundos: secs, valor_lacto: val });
+        taskArr.push({ tarefa: taskName, total_segundos: secs, valor_lacto: val, count: 1 });
       }
     });
     
@@ -1066,6 +1068,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
             tasks: Record<string, {
               tarefa_nome: string;
               total_segundos: number;
+              count: number;
             }>;
           }>;
         }>;
@@ -1127,10 +1130,12 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
       if (!departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName]) {
         departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName] = {
           tarefa_nome: taskName,
-          total_segundos: 0
+          total_segundos: 0,
+          count: 0
         };
       }
       departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName].total_segundos += secs;
+      departments[deptName].companies[companyName].roles[roleName].collaborators[colabName].tasks[taskName].count += 1;
     });
 
     return { departments, total_hours, total_companies: companiesSet.size };
@@ -2477,10 +2482,11 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                                     </span>
                                   </div>
                                   <div className="divide-y divide-brand-border/15">
-                                    <div className="grid grid-cols-4 bg-brand-card-light/20 px-4 py-2 text-[9px] uppercase font-bold tracking-wider text-brand-text-muted/80">
+                                    <div className="grid grid-cols-5 bg-brand-card-light/20 px-4 py-2 text-[9px] uppercase font-bold tracking-wider text-brand-text-muted/80">
                                       <div>Departamento</div>
                                       <div className="text-right">Horas</div>
-                                      <div className="text-right">Valor</div>
+                                      <div className="text-center">Média/Ativ</div>
+                                       <div className="text-right">Valor</div>
                                       <div className="text-right">Share dentro do Cliente</div>
                                     </div>
                                     {deptData.map((dept) => {
@@ -2490,7 +2496,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                                       const valorShare = ((dept.valor_lacto || 0) / totalClientValor) * 100;
                                       
                                       return (
-                                        <div key={dept.setor} className="grid grid-cols-4 px-4 py-2.5 text-xs items-center hover:bg-brand-card-bright/5 transition-colors">
+                                        <div key={dept.setor} className="grid grid-cols-5 px-4 py-2.5 text-xs items-center hover:bg-brand-card-bright/5 transition-colors">
                                           <div className="font-semibold text-white/95 flex items-center gap-2">
                                             <span className="w-1.5 h-1.5 rounded-full bg-brand-primary" />
                                             {dept.setor}
@@ -2498,7 +2504,10 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                                           <div className="text-right font-mono font-bold text-white/90">
                                             {formatSecondsToHms(dept.total_segundos)}
                                           </div>
-                                          <div className="text-right font-mono font-bold text-amber-500">
+                                           <div className="text-center font-mono font-medium text-brand-primary">
+                                             {formatSecondsToHms(dept.count > 0 ? Math.round(dept.total_segundos / dept.count) : 0)}
+                                           </div>
+                                           <div className="text-right font-mono font-bold text-amber-500">
                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dept.valor_lacto || 0)}
                                           </div>
                                           <div className="text-right font-mono text-[11px] flex flex-col items-end">
@@ -2726,6 +2735,12 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                                                   <span className="text-[10px] font-mono text-brand-text-muted/40 font-semibold">
                                                     {taskPercentage}%
                                                   </span>
+                                                  <div className="flex flex-col items-center border border-red-500 p-1">
+                                                    <span className="text-[9px] text-red-500 uppercase font-bold">Méd/Ativ</span>
+                                                    <span className="font-mono text-xs font-medium text-red-500 tracking-wider">
+                                                      {formatSecondsToHms(task.count > 0 ? Math.round(task.total_segundos / task.count) : 0)}
+                                                    </span>
+                                                  </div>
                                                   <span className="font-mono text-xs font-medium text-brand-text-muted tracking-wider">
                                                     {formatSecondsToHms(task.total_segundos)}
                                                   </span>

@@ -263,7 +263,7 @@ export default function DashboardView({
 
   // States for in-grid client department drill-down
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
-  const [clientDeptData, setClientDeptData] = useState<Record<string, { setor: string; total_segundos: number; valor_lacto: number }[]>>({});
+  const [clientDeptData, setClientDeptData] = useState<Record<string, { setor: string; total_segundos: number; valor_lacto: number; count: number }[]>>({});
   const [loadingClientDepts, setLoadingClientDepts] = useState<Record<string, boolean>>({});
 
 
@@ -391,7 +391,7 @@ export default function DashboardView({
         total_segundos: number;
         valor_lacto: number;
         cliente_nome: string;
-        tasks: { tarefa: string; total_segundos: number; valor_lacto: number }[];
+        tasks: { tarefa: string; total_segundos: number; valor_lacto: number; count: number }[];
       }>;
     }> = {};
 
@@ -425,11 +425,20 @@ export default function DashboardView({
       depts[deptName].clients[cliCode].total_segundos += secs;
       depts[deptName].clients[cliCode].valor_lacto += valLacto;
       
-      depts[deptName].clients[cliCode].tasks.push({
-        tarefa: taskName,
-        total_segundos: secs,
-        valor_lacto: valLacto
-      });
+      const taskArr = depts[deptName].clients[cliCode].tasks;
+      const existingTask = taskArr.find(t => t.tarefa === taskName);
+      if (existingTask) {
+        existingTask.total_segundos += secs;
+        existingTask.valor_lacto += valLacto;
+        existingTask.count += 1;
+      } else {
+        taskArr.push({
+          tarefa: taskName,
+          total_segundos: secs,
+          valor_lacto: valLacto,
+          count: 1
+        });
+      }
     });
 
     // Sort tasks and clients in descending order of total_segundos
@@ -2203,10 +2212,11 @@ export default function DashboardView({
                                     </div>
                                   ) : clientDeptData[key] && clientDeptData[key].length > 0 ? (
                                     <div className="divide-y divide-brand-border/15">
-                                      <div className="grid grid-cols-4 bg-brand-card-light/20 px-4 py-2 text-[9px] uppercase font-bold tracking-wider text-brand-text-muted/80">
+                                      <div className="grid grid-cols-5 bg-brand-card-light/20 px-4 py-2 text-[9px] uppercase font-bold tracking-wider text-brand-text-muted/80">
                                         <div>Departamento</div>
                                         <div className="text-right">Horas</div>
-                                        <div className="text-right">Valor</div>
+                                        <div className="text-center">Média/Ativ</div>
+                                       <div className="text-right">Valor</div>
                                         <div className="text-right">Share dentro do Cliente</div>
                                       </div>
                                       {clientDeptData[key].map((dept) => {
@@ -2216,7 +2226,7 @@ export default function DashboardView({
                                         const valorShare = ((dept.valor_lacto || 0) / totalClientValor) * 100;
                                         
                                         return (
-                                          <div key={dept.setor} className="grid grid-cols-4 px-4 py-2.5 text-xs items-center hover:bg-brand-card-bright/5 transition-colors">
+                                          <div key={dept.setor} className="grid grid-cols-5 px-4 py-2.5 text-xs items-center hover:bg-brand-card-bright/5 transition-colors">
                                             <div className="font-semibold text-white/95 flex items-center gap-2">
                                               <span className="w-1.5 h-1.5 rounded-full bg-brand-primary" />
                                               {dept.setor}
@@ -2224,7 +2234,10 @@ export default function DashboardView({
                                             <div className="text-right font-mono font-bold text-white/90">
                                               {formatSecondsToHms(dept.total_segundos)}
                                             </div>
-                                            <div className="text-right font-mono font-bold text-amber-500">
+                                           <div className="text-center font-mono font-medium text-brand-primary">
+                                             {formatSecondsToHms(dept.count > 0 ? Math.round(dept.total_segundos / dept.count) : 0)}
+                                           </div>
+                                           <div className="text-right font-mono font-bold text-amber-500">
                                               {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dept.valor_lacto || 0)}
                                             </div>
                                             <div className="text-right font-mono text-[11px]">

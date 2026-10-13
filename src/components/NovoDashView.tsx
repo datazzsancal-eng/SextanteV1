@@ -826,12 +826,14 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           cliente_codigo: item.codigo || 'S/C',
           total_segundos: 0,
           valor_lacto: 0,
+          activity_count: 0,
         });
       }
       
       const current = groupedMap.get(clientId);
       current.total_segundos += (item.qtde_segundos || 0);
       current.valor_lacto += (item.valor_lancamento || 0);
+      current.activity_count += 1;
     });
 
     return Array.from(groupedMap.values());
@@ -894,6 +896,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
       grupo_cliente_nome: string;
       tempo_segundos: number;
       valor_lacto: number;
+      activity_count: number;
       clientes: any[];
     }>();
 
@@ -904,12 +907,14 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
           grupo_cliente_nome: groupName,
           tempo_segundos: 0,
           valor_lacto: 0,
+          activity_count: 0,
           clientes: []
         });
       }
       const g = map.get(groupName)!;
       g.tempo_segundos += cli.total_segundos || 0;
       g.valor_lacto += cli.valor_lacto || 0;
+      g.activity_count += cli.activity_count || 0;
       g.clientes.push(cli);
     });
 
@@ -2099,6 +2104,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                       <th className="py-3 px-3 w-1/3 bg-brand-card-light">Grupo de Clientes</th>
                       <th className="py-3 px-3 text-center bg-brand-card-light w-24">Score</th>
                       <th className="py-3 px-4 text-center bg-brand-card-light w-32">Horas</th>
+                      <th className="py-3 px-4 text-center bg-brand-card-light w-32">Média/Ativ</th>
                       <th className="py-3 px-4 text-right bg-brand-card-light w-32">Valor Lançamento</th>
                       <th className="py-3 px-4 text-right bg-brand-card-light w-32">Honorário</th>
                       <th className="py-3 px-4 text-right bg-brand-card-light w-20">% Share</th>
@@ -2165,6 +2171,11 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                                 {formatSecondsToHms(group.tempo_segundos)}
                               </span>
                             </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <span className="font-mono text-xs font-bold text-brand-text-muted">
+                                {formatSecondsToHms(group.activity_count > 0 ? Math.round(group.tempo_segundos / group.activity_count) : 0)}
+                              </span>
+                            </td>
                             <td className="py-3.5 px-4 text-right">
                               <span className="font-mono text-sm font-extrabold text-amber-500">
                                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(group.valor_lacto)}
@@ -2175,13 +2186,13 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(honorariosByGrupoCliente.get(group.grupo_cliente_nome) || 0)}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-right font-mono font-bold text-[11px] text-emerald-400">
+                             <td className="py-3.5 px-4 text-right font-mono font-bold text-[11px] text-emerald-400">
                               {sharePercent.toFixed(1)}%
                             </td>
                           </tr>
                           {isExpanded && (
                             <tr className="bg-brand-bg/40 border-t border-brand-border/30">
-                              <td colSpan={7} className="p-0">
+                              <td colSpan={8} className="p-0">
                                 <div className="p-4 pl-10 border-l-2 border-brand-primary/30">
                                   <table className="w-full text-left text-[11px]">
                                     <thead>
@@ -2313,6 +2324,7 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                         </button>
                       </th>
                       <th className="py-3 px-3 text-center bg-brand-card-light">Score</th>
+                      <th className="py-3 px-4 text-center bg-brand-card-light w-24">Média/Ativ</th>
                       <th className="py-3 px-4 bg-brand-card-light">
                         <div className="flex justify-end">
                           <button 
@@ -2409,6 +2421,12 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                             <td className="py-3.5 px-3 text-center font-mono">
                               <span className="inline-block px-2 py-0.5 rounded text-[11px] font-extrabold bg-brand-primary/10 text-brand-primary border border-brand-primary/20" title="Posição Horas / Posição Valor">
                                 {scoreStr}
+                              </span>
+                            </td>
+
+                            <td className="py-3.5 px-4 text-center">
+                              <span className="font-mono text-xs font-bold text-brand-text-muted">
+                                {formatSecondsToHms(row.activity_count > 0 ? Math.round((row.total_segundos || 0) / row.activity_count) : 0)}
                               </span>
                             </td>
 

@@ -848,12 +848,14 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
           cliente_codigo: item.codigo || 'S/C',
           total_segundos: 0,
           valor_lacto: 0,
+          activity_count: 0,
         });
       }
       
       const current = groupedMap.get(clientId);
       current.total_segundos += (item.qtde_segundos || 0);
       current.valor_lacto += (item.valor_lancamento || 0);
+      current.activity_count += 1;
     });
 
     return Array.from(groupedMap.values());
@@ -916,6 +918,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
       grupo_cliente_nome: string;
       tempo_segundos: number;
       valor_lacto: number;
+      activity_count: number;
       clientes: any[];
     }>();
 
@@ -926,12 +929,14 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
           grupo_cliente_nome: groupName,
           tempo_segundos: 0,
           valor_lacto: 0,
+          activity_count: 0,
           clientes: []
         });
       }
       const g = map.get(groupName)!;
       g.tempo_segundos += cli.total_segundos || 0;
       g.valor_lacto += cli.valor_lacto || 0;
+      g.activity_count += cli.activity_count || 0;
       g.clientes.push(cli);
     });
 
@@ -2242,6 +2247,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                       <th className="py-3 px-3 w-1/3 bg-brand-card-light">Grupo de Clientes</th>
                       <th className="py-3 px-3 text-center bg-brand-card-light w-24">Score</th>
                       <th className="py-3 px-4 text-center bg-brand-card-light w-32">Horas</th>
+                      <th className="py-3 px-4 text-center bg-brand-card-light w-32">Média/Ativ</th>
                       <th className="py-3 px-4 text-right bg-brand-card-light w-20">% Share</th>
                     </tr>
                   </thead>
@@ -2306,7 +2312,12 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                                 {formatSecondsToHms(group.tempo_segundos)}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-right font-mono font-bold text-[11px] text-emerald-400">
+                             <td className="py-3.5 px-4 text-center">
+                               <span className="font-mono text-xs font-bold text-brand-text-muted">
+                                 {formatSecondsToHms(group.activity_count > 0 ? Math.round(group.tempo_segundos / group.activity_count) : 0)}
+                               </span>
+                             </td>
+                             <td className="py-3.5 px-4 text-right font-mono font-bold text-[11px] text-emerald-400">
                               {sharePercent.toFixed(1)}%
                             </td>
                           </tr>
@@ -2438,6 +2449,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                         </button>
                       </th>
                       <th className="py-3 px-3 text-center bg-brand-card-light">Score</th>
+                      <th className="py-3 px-4 text-center bg-brand-card-light w-24">Média/Ativ</th>
                       <th className="py-3 px-4 bg-brand-card-light">
                         <div className="flex justify-end">
                           <button 
@@ -2524,6 +2536,12 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                               </span>
                             </td>
 
+                            <td className="py-3.5 px-4 text-center">
+                              <span className="font-mono text-xs font-bold text-brand-text-muted">
+                                {formatSecondsToHms(row.activity_count > 0 ? Math.round((row.total_segundos || 0) / row.activity_count) : 0)}
+                              </span>
+                            </td>
+
                             {/* Horas */}
                             <td className="py-3.5 px-4 text-right font-mono text-sm font-extrabold text-white">
                               {formatSecondsToHms(row.total_segundos || 0)}
@@ -2554,7 +2572,7 @@ export default function DashLiderancaView({ isExecutiveView = false, toggleExecu
                           {/* Expanded sub-row with departments */}
                           {isExpanded && (
                             <tr className="bg-brand-bg/40">
-                              <td colSpan={7} className="py-4 px-6 pl-12">
+                              <td colSpan={8} className="py-4 px-6 pl-12">
                                 <div className="border border-brand-border/30 rounded-lg overflow-hidden bg-brand-bg/80 shadow-md">
                                   <div className="bg-brand-card-light/40 px-4 py-2 flex items-center justify-between border-b border-brand-border/20">
                                     <span className="text-[10px] uppercase font-black tracking-wider text-brand-text-muted">

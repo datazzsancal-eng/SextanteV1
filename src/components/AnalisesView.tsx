@@ -17,7 +17,11 @@ import {
   Building2,
   User,
   CheckCircle2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  X,
+  Eye,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
@@ -57,6 +61,22 @@ export default function AnalisesView() {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [sortField, setSortField] = useState<string>('tempo_segundos');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
+
+  // Drilldown Modal States (Grupo e Empresa)
+  interface DrilldownModalTarget {
+    type: 'grupo' | 'empresa';
+    key: string;
+    name: string;
+    secondaryName?: string;
+    empresa_id?: string;
+  }
+  const [selectedEntityModal, setSelectedEntityModal] = useState<DrilldownModalTarget | null>(null);
+  const [modalLoading, setModalLoading] = useState<boolean>(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalRecords, setModalRecords] = useState<any[]>([]);
+  const [modalExpandedDepts, setModalExpandedDepts] = useState<Set<string>>(new Set());
+  const [modalExpandedTasks, setModalExpandedTasks] = useState<Set<string>>(new Set());
+  const [modalSearchTerm, setModalSearchTerm] = useState<string>('');
 
   // Discover periods and departments on mount
   useEffect(() => {
@@ -194,14 +214,303 @@ export default function AnalisesView() {
     fetchData();
   }, [startPeriod, endPeriod, selectedDepartmentId, availablePeriods, refreshTrigger]);
 
+  // Fetch detailed records for selected entity (grupo ou empresa) from vw_apontamento_mensal_detalhe
+  const fetchEntityDetails = async (target: DrilldownModalTarget) => {
+    if (!supabase || !isSupabaseConfigured) return;
+    setModalLoading(true);
+    setModalError(null);
+    setModalRecords([]);
+    setModalExpandedDepts(new Set());
+    setModalExpandedTasks(new Set());
+    setModalSearchTerm('');
+
+    try {
+      const startIndex = availablePeriods.findIndex(p => p.value === startPeriod);
+      const endIndex = availablePeriods.findIndex(p => p.value === endPeriod);
+      const activePeriods = availablePeriods.filter((_, idx) => {
+        const minIdx = Math.min(startIndex, endIndex);
+        const maxIdx = Math.max(startIndex, endIndex);
+        return idx >= minIdx && idx <= maxIdx;
+      });
+
+      const activeYears = Array.from(new Set(activePeriods.map(p => p.ano)));
+      const activeMonths = Array.from(new Set(activePeriods.map(p => p.mes)));
+      const validPeriodSet = new Set(activePeriods.map(p => `${p.ano}-${p.mes}`));
+
+      let allRecords: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        let query = supabase
+          .from('vw_apontamento_mensal_detalhe')
+          .select('*');
+
+        if (target.type === 'grupo') {
+          if (target.name === 'SEM GRUPO' || !target.name) {
+            query = query.or('grupo_nome.is.null,grupo_nome.eq.SEM GRUPO,grupo_nome.eq.""');
+          } else {
+            query = query.eq('grupo_nome', target.name);
+          }
+        } else if (target.type === 'empresa') {
+          if (target.empresa_id) {
+            query = query.eq('empresa_id', target.empresa_id);
+          } else {
+            query = query.eq('empresa_nome', target.name);
+          }
+        }
+
+        if (activeYears.length > 0) {
+          query = query.in('aponta_ano', activeYears);
+        }
+        if (activeMonths.length > 0) {
+          query = query.in('aponta_mes', activeMonths);
+        }
+        if (selectedDepartmentId !== 'all') {
+          query = query.eq('depto_id', selectedDepartmentId);
+        }
+
+        const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) {
+          console.warn('Erro ao consultar vw_apontamento_mensal_detalhe:', error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          const validData = data.filter((row: any) => {
+            const matchPeriod = validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`);
+            const matchDept = selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId);
+            const matchDeptCalc = row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined;
+            return matchPeriod && matchDept && matchDeptCalc;
+          });
+          allRecords = [...allRecords, ...validData];
+          if (data.length < pageSize || allRecords.length > 30000) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+        page++;
+      }
+
+      // Se detalhe não retornou registros ou falhou, usar fallback a partir de rawData
+      if (allRecords.length === 0 && rawData.length > 0) {
+        let fallbackRows: any[] = [];
+        if (target.type === 'grupo') {
+          const normGroup = (target.name || 'SEM GRUPO').trim().toUpperCase();
+          fallbackRows = rawData.filter(r => (r.grupo_nome || 'SEM GRUPO').trim().toUpperCase() === normGroup);
+        } else if (target.type === 'empresa') {
+          const normEmpName = (target.name || '').trim().toUpperCase();
+          fallbackRows = rawData.filter(r => {
+            if (target.empresa_id && (String(r.empresa_id) === String(target.empresa_id) || String(r.cliente_id) === String(target.empresa_id))) {
+              return true;
+            }
+            const rName = (r.empresa_nome || r.cliente_nome || '').trim().toUpperCase();
+            return rName === normEmpName;
+          });
+        }
+
+        if (fallbackRows.length > 0) {
+          allRecords = fallbackRows.map(r => ({
+            grupo_nome: r.grupo_nome,
+            empresa_id: r.empresa_id || r.cliente_id,
+            empresa_nome: r.empresa_nome || r.cliente_nome || target.name,
+            depto_id: r.depto_id,
+            depto_nome: r.depto_nome || 'Sem Departamento',
+            tarefa_nome: r.tarefa_nome || r.tarefa || 'Atividade Operacional Geral',
+            colaborador_nome: r.colaborador_nome || 'Colaboradores do Departamento',
+            aponta_qtde_segundos: r.aponta_qtde_segundos || r.tempo_segundos || 0,
+            aponta_qtde_lancamentos: r.aponta_qtde_lancamentos || r.qtde_lancamentos || 1,
+            aponta_ano: r.aponta_ano,
+            aponta_mes: r.aponta_mes,
+            depto_calcula_sn: true
+          }));
+        }
+      }
+
+      setModalRecords(allRecords);
+    } catch (err: any) {
+      console.error('Error fetching modal details:', err);
+      setModalError(err.message || 'Erro ao carregar detalhamento.');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleOpenEntityModal = (item: { key: string; name: string; secondaryName?: string; empresa_id?: string }, type: 'grupo' | 'empresa') => {
+    const target: DrilldownModalTarget = {
+      type,
+      key: item.key,
+      name: item.name,
+      secondaryName: item.secondaryName,
+      empresa_id: item.empresa_id
+    };
+    setSelectedEntityModal(target);
+    fetchEntityDetails(target);
+  };
+
+  const handleCloseEntityModal = () => {
+    setSelectedEntityModal(null);
+    setModalRecords([]);
+  };
+
+  // Close modal on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedEntityModal) {
+        handleCloseEntityModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedEntityModal]);
+
+  const toggleDeptExpand = (deptName: string) => {
+    const next = new Set(modalExpandedDepts);
+    if (next.has(deptName)) {
+      next.delete(deptName);
+    } else {
+      next.add(deptName);
+    }
+    setModalExpandedDepts(next);
+  };
+
+  const toggleTaskExpand = (deptName: string, taskName: string) => {
+    const key = `${deptName}:::${taskName}`;
+    const next = new Set(modalExpandedTasks);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    setModalExpandedTasks(next);
+  };
+
+  // Hierarchy for the drilldown modal (Departamento -> Atividade / Tarefa -> Colaborador)
+  const modalHierarchy = useMemo(() => {
+    let totalGroupSeconds = 0;
+    let totalGroupLancamentos = 0;
+
+    interface ColabItem {
+      colaborador_nome: string;
+      tempo_segundos: number;
+      lancamentos: number;
+      media_segundos: number;
+    }
+
+    interface TaskItem {
+      tarefa_nome: string;
+      tempo_segundos: number;
+      lancamentos: number;
+      media_segundos: number;
+      colaboradores: Record<string, ColabItem>;
+    }
+
+    interface DeptItem {
+      depto_nome: string;
+      tempo_segundos: number;
+      lancamentos: number;
+      media_segundos: number;
+      tarefas: Record<string, TaskItem>;
+    }
+
+    const depts: Record<string, DeptItem> = {};
+
+    modalRecords.forEach((row: any) => {
+      const deptName = row.depto_nome || 'SEM DEPARTAMENTO';
+      const taskName = row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO';
+      const colabName = row.colaborador_nome || 'SEM COLABORADOR';
+      const secs = Number(row.aponta_qtde_segundos) || Number(row.tempo_segundos) || 0;
+      const count = Number(row.aponta_qtde_lancamentos) || Number(row.qtde_lancamentos) || 1;
+
+      totalGroupSeconds += secs;
+      totalGroupLancamentos += count;
+
+      if (!depts[deptName]) {
+        depts[deptName] = {
+          depto_nome: deptName,
+          tempo_segundos: 0,
+          lancamentos: 0,
+          media_segundos: 0,
+          tarefas: {}
+        };
+      }
+      depts[deptName].tempo_segundos += secs;
+      depts[deptName].lancamentos += count;
+
+      if (!depts[deptName].tarefas[taskName]) {
+        depts[deptName].tarefas[taskName] = {
+          tarefa_nome: taskName,
+          tempo_segundos: 0,
+          lancamentos: 0,
+          media_segundos: 0,
+          colaboradores: {}
+        };
+      }
+      depts[deptName].tarefas[taskName].tempo_segundos += secs;
+      depts[deptName].tarefas[taskName].lancamentos += count;
+
+      if (!depts[deptName].tarefas[taskName].colaboradores[colabName]) {
+        depts[deptName].tarefas[taskName].colaboradores[colabName] = {
+          colaborador_nome: colabName,
+          tempo_segundos: 0,
+          lancamentos: 0,
+          media_segundos: 0
+        };
+      }
+      depts[deptName].tarefas[taskName].colaboradores[colabName].tempo_segundos += secs;
+      depts[deptName].tarefas[taskName].colaboradores[colabName].lancamentos += count;
+    });
+
+    Object.values(depts).forEach(d => {
+      d.media_segundos = d.lancamentos > 0 ? Math.round(d.tempo_segundos / d.lancamentos) : 0;
+      Object.values(d.tarefas).forEach(t => {
+        t.media_segundos = t.lancamentos > 0 ? Math.round(t.tempo_segundos / t.lancamentos) : 0;
+        Object.values(t.colaboradores).forEach(c => {
+          c.media_segundos = c.lancamentos > 0 ? Math.round(c.tempo_segundos / c.lancamentos) : 0;
+        });
+      });
+    });
+
+    const mediaGroup = totalGroupLancamentos > 0 ? Math.round(totalGroupSeconds / totalGroupLancamentos) : 0;
+
+    return {
+      totalGroupSeconds,
+      totalGroupLancamentos,
+      mediaGroup,
+      departments: depts
+    };
+  }, [modalRecords]);
+
+  const handleModalExpandAll = () => {
+    const allDepts = new Set<string>();
+    const allTasks = new Set<string>();
+    Object.keys(modalHierarchy.departments).forEach(deptName => {
+      allDepts.add(deptName);
+      const d = modalHierarchy.departments[deptName];
+      Object.keys(d.tarefas).forEach(taskName => {
+        allTasks.add(`${deptName}:::${taskName}`);
+      });
+    });
+    setModalExpandedDepts(allDepts);
+    setModalExpandedTasks(allTasks);
+  };
+
+  const handleModalCollapseAll = () => {
+    setModalExpandedDepts(new Set());
+    setModalExpandedTasks(new Set());
+  };
+
   // Aggregate data according to chosen dimension
   const aggregatedData = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; secondaryName?: string; tempo_segundos: number; count: number; entitiesSet: Set<string> }>();
+    const map = new Map<string, { key: string; name: string; secondaryName?: string; empresa_id?: string; tempo_segundos: number; count: number; entitiesSet: Set<string> }>();
 
     rawData.forEach(row => {
       let key = 'N/A';
       let name = 'Não Informado';
       let secondaryName = undefined;
+      let empresa_id = undefined;
 
       const secs = row.aponta_qtde_segundos || row.tempo_segundos || 0;
 
@@ -211,9 +520,10 @@ export default function AnalisesView() {
           name = key;
           break;
         case 'empresa':
-          key = row.empresa_id || row.cliente_id || row.empresa_nome || 'SEM EMPRESA';
+          key = String(row.empresa_id || row.cliente_id || row.empresa_nome || 'SEM EMPRESA');
           name = row.empresa_nome || row.cliente_nome || 'Empresa sem nome';
           secondaryName = row.grupo_nome;
+          empresa_id = row.empresa_id ? String(row.empresa_id) : row.cliente_id ? String(row.cliente_id) : undefined;
           break;
         case 'departamento':
           key = String(row.depto_id || row.depto_nome || 'SEM DEPTO');
@@ -238,7 +548,7 @@ export default function AnalisesView() {
       }
 
       if (!map.has(key)) {
-        map.set(key, { key, name, secondaryName, tempo_segundos: 0, count: 0, entitiesSet: new Set() });
+        map.set(key, { key, name, secondaryName, empresa_id, tempo_segundos: 0, count: 0, entitiesSet: new Set() });
       }
 
       const item = map.get(key)!;
@@ -251,7 +561,8 @@ export default function AnalisesView() {
 
     const list = Array.from(map.values()).map(item => ({
       ...item,
-      empresasCount: item.entitiesSet.size
+      empresasCount: item.entitiesSet.size,
+      media_segundos: item.count > 0 ? Math.round(item.tempo_segundos / item.count) : 0
     }));
 
     // Filter by search term
@@ -291,7 +602,7 @@ export default function AnalisesView() {
   const handleExportCSV = () => {
     if (aggregatedData.length === 0) return;
     try {
-      const headers = ['Visão', 'Nome', 'Tempo Total (HH:MM:SS)', 'Horas Decimais', 'Total de Apontamentos', 'Participação (%)'];
+      const headers = ['Visão', 'Nome', 'Tempo Total (HH:MM:SS)', 'Horas Decimais', 'Total de Apontamentos', 'Média/Ativ (HH:MM:SS)', 'Participação (%)'];
       const csvRows = [headers.join(';')];
 
       aggregatedData.forEach(item => {
@@ -303,6 +614,7 @@ export default function AnalisesView() {
           `"${formatSecondsToHms(item.tempo_segundos)}"`,
           hoursDec,
           item.count,
+          `"${formatSecondsToHms(item.media_segundos)}"`,
           share
         ];
         csvRows.push(row.join(';'));
@@ -474,8 +786,8 @@ export default function AnalisesView() {
             <div className="text-lg font-mono font-black text-white mt-1">
               {totalEntriesCount.toLocaleString('pt-BR')}
             </div>
-            <span className="text-[10px] text-brand-text-muted font-mono mt-0.5 block">
-              Registros de apontamento
+            <span className="text-[10px] text-sky-400 font-mono mt-0.5 block">
+              Média geral: {formatSecondsToHms(totalEntriesCount > 0 ? Math.round(totalSecondsAll / totalEntriesCount) : 0)}/ativ
             </span>
           </div>
           <div className="p-3 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
@@ -575,17 +887,52 @@ export default function AnalisesView() {
                         <ArrowUpDown size={12} />
                       </button>
                     </th>
+                    <th className="py-3 px-4 text-center">
+                      <button 
+                        type="button" 
+                        onClick={() => handleSort('media_segundos')}
+                        className="flex items-center justify-center gap-1.5 hover:text-white transition-colors cursor-pointer w-full"
+                        title="Média de Horas por Lançamento/Atividade (Horas / Lançamentos)"
+                      >
+                        <span>Média/Ativ</span>
+                        <ArrowUpDown size={12} />
+                      </button>
+                    </th>
                     <th className="py-3 px-4 text-right">Participação (%)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-brand-border/20 font-sans text-xs">
                   {aggregatedData.map((item, idx) => {
                     const share = totalSecondsAll > 0 ? (item.tempo_segundos / totalSecondsAll) * 100 : 0;
+                    const isClickable = dimension === 'grupo' || dimension === 'empresa';
                     return (
-                      <tr key={`row_${idx}`} className="hover:bg-brand-card-bright/10 transition-colors group">
+                      <tr 
+                        key={`row_${idx}`} 
+                        onClick={() => isClickable && handleOpenEntityModal(item, dimension)}
+                        className={`hover:bg-brand-card-bright/10 transition-colors group ${isClickable ? 'cursor-pointer' : ''}`}
+                      >
                         <td className="py-3 px-4">
-                          <div className="font-extrabold text-white text-[13px]">{item.name}</div>
-                          {item.secondaryName && (
+                          {isClickable ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenEntityModal(item, dimension);
+                              }}
+                              className="text-left group/btn flex items-center gap-2 cursor-pointer focus:outline-none"
+                              title={`Clique para abrir o detalhamento por departamento, atividade e colaborador de ${item.name}`}
+                            >
+                              <span className="font-extrabold text-white text-[13px] group-hover/btn:text-brand-primary group-hover/btn:underline transition-colors">
+                                {item.name}
+                              </span>
+                              <span className="p-1 rounded bg-brand-primary/10 text-brand-primary border border-brand-primary/20 opacity-70 group-hover/btn:opacity-100 group-hover/btn:scale-110 transition-all shrink-0">
+                                <Eye size={12} />
+                              </span>
+                            </button>
+                          ) : (
+                            <div className="font-extrabold text-white text-[13px]">{item.name}</div>
+                          )}
+                          {item.secondaryName && dimension !== 'empresa' && (
                             <div className="text-[10px] text-brand-text-muted font-mono mt-0.5">Grupo: {item.secondaryName}</div>
                           )}
                         </td>
@@ -599,6 +946,14 @@ export default function AnalisesView() {
                           {formatSecondsToHms(item.tempo_segundos)}
                           <span className="text-[10px] text-brand-text-muted font-normal block">
                             {(item.tempo_segundos / 3600).toFixed(1)}h decimais
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono">
+                          <span className="font-extrabold text-brand-primary text-xs bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded inline-block">
+                            {formatSecondsToHms(item.media_segundos)}
+                          </span>
+                          <span className="text-[10px] text-brand-text-muted/60 font-mono block mt-0.5">
+                            {(item.media_segundos / 3600).toFixed(2)}h/ativ
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right font-mono">
@@ -621,6 +976,335 @@ export default function AnalisesView() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Detalhamento por Departamento > Atividade > Colaborador */}
+      {selectedEntityModal && (
+        <div 
+          onClick={handleCloseEntityModal}
+          className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-brand-card border border-brand-border/80 rounded-2xl w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-brand-card-light/60 border-b border-brand-border/60 flex flex-wrap items-center justify-between gap-4 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2.5 rounded-xl bg-brand-primary/10 text-brand-primary border border-brand-primary/20 shrink-0">
+                  {selectedEntityModal.type === 'empresa' ? <Building2 size={22} /> : <Layers size={22} />}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-brand-primary bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded">
+                      {selectedEntityModal.type === 'empresa' ? 'Empresa / Cliente' : 'Grupo de Empresa'}
+                    </span>
+                    <h2 className="text-base font-extrabold text-white truncate max-w-xl">
+                      {selectedEntityModal.name}
+                    </h2>
+                  </div>
+                  <p className="text-xs text-brand-text-muted mt-0.5">
+                    {selectedEntityModal.type === 'empresa' && selectedEntityModal.secondaryName ? (
+                      <span>Grupo: <strong className="text-brand-text-muted/90">{selectedEntityModal.secondaryName}</strong> • Detalhamento por Departamento &gt; Atividade &gt; Colaborador</span>
+                    ) : (
+                      <span>Detalhamento de esforço por Departamento &gt; Atividade &gt; Colaborador</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleModalExpandAll}
+                  disabled={modalLoading || modalRecords.length === 0}
+                  className="px-3 py-1.5 text-xs font-semibold text-brand-primary bg-brand-primary/10 hover:bg-brand-primary/20 border border-brand-primary/20 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Expandir Tudo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleModalCollapseAll}
+                  disabled={modalLoading || modalRecords.length === 0}
+                  className="px-3 py-1.5 text-xs font-semibold text-brand-text-muted bg-brand-bg hover:bg-brand-card/40 border border-brand-border/60 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Recolher Tudo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseEntityModal}
+                  className="p-1.5 text-brand-text-muted hover:text-white hover:bg-brand-border/40 rounded-lg transition-colors cursor-pointer ml-1"
+                  title="Fechar"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal KPI Strip & Search */}
+            <div className="px-6 py-3 bg-brand-bg/40 border-b border-brand-border/40 flex flex-wrap items-center justify-between gap-4 shrink-0">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] uppercase font-bold text-brand-text-muted">Horas Totais:</span>
+                  <span className="font-mono text-sm font-extrabold text-white">
+                    {formatSecondsToHms(modalHierarchy.totalGroupSeconds)}
+                  </span>
+                  <span className="text-[10px] text-brand-text-muted font-mono">
+                    ({(modalHierarchy.totalGroupSeconds / 3600).toFixed(1)}h)
+                  </span>
+                </div>
+                <div className="h-4 w-px bg-brand-border/60 hidden sm:block" />
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] uppercase font-bold text-brand-text-muted">Lançamentos:</span>
+                  <span className="font-mono text-sm font-extrabold text-sky-400">
+                    {modalHierarchy.totalGroupLancamentos.toLocaleString('pt-BR')}
+                  </span>
+                </div>
+                <div className="h-4 w-px bg-brand-border/60 hidden sm:block" />
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] uppercase font-bold text-brand-text-muted">Média/Ativ:</span>
+                  <span className="font-mono text-sm font-extrabold text-brand-primary">
+                    {formatSecondsToHms(modalHierarchy.mediaGroup)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick filter in modal */}
+              <div className="relative w-full sm:w-64">
+                <Search size={14} className="absolute left-3 top-2.5 text-brand-text-muted" />
+                <input
+                  type="text"
+                  value={modalSearchTerm}
+                  onChange={(e) => setModalSearchTerm(e.target.value)}
+                  placeholder="Filtrar departamento, tarefa..."
+                  className="w-full bg-brand-card border border-brand-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-brand-text-muted/50 focus:outline-none focus:border-brand-primary"
+                />
+              </div>
+            </div>
+
+            {/* Modal Body: Tree Table */}
+            <div className="flex-1 overflow-auto custom-scrollbar p-6 bg-brand-bg/20">
+              {modalLoading ? (
+                <div className="py-24 text-center space-y-3">
+                  <RefreshCw size={36} className="animate-spin text-brand-primary mx-auto" />
+                  <p className="text-sm font-medium text-brand-text-muted">
+                    {selectedEntityModal.type === 'empresa'
+                      ? 'Carregando apontamentos detalhados da empresa...'
+                      : 'Carregando apontamentos detalhados do grupo...'}
+                  </p>
+                </div>
+              ) : modalError ? (
+                <div className="py-24 text-center space-y-3 text-rose-400">
+                  <p className="text-sm">{modalError}</p>
+                </div>
+              ) : Object.keys(modalHierarchy.departments).length === 0 ? (
+                <div className="py-24 text-center space-y-3">
+                  <Briefcase size={40} className="text-brand-text-muted/30 mx-auto" />
+                  <p className="text-sm italic text-brand-text-muted">
+                    {selectedEntityModal.type === 'empresa'
+                      ? 'Nenhum apontamento detalhado encontrado para esta empresa no período selecionado.'
+                      : 'Nenhum apontamento detalhado encontrado para este grupo no período selecionado.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="border border-brand-border/60 rounded-xl overflow-hidden bg-brand-card/40">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-brand-card-light/80 sticky top-0 z-10 border-b border-brand-border/60">
+                      <tr className="text-[11px] font-bold text-brand-text-muted/80 tracking-wider uppercase select-none">
+                        <th className="py-3 px-4">Departamento / Atividade / Colaborador</th>
+                        <th className="py-3 px-4 text-center w-32">Lançamentos</th>
+                        <th className="py-3 px-4 text-right w-40">Horas Trabalhadas</th>
+                        <th className="py-3 px-4 text-center w-36">Média/Ativ</th>
+                        <th className="py-3 px-4 text-right w-36">Participação (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-brand-border/20 font-sans text-xs">
+                      {Object.keys(modalHierarchy.departments)
+                        .filter(deptName => {
+                          if (!modalSearchTerm) return true;
+                          const term = modalSearchTerm.toLowerCase();
+                          if (deptName.toLowerCase().includes(term)) return true;
+                          const dept = modalHierarchy.departments[deptName];
+                          return Object.keys(dept.tarefas).some(tName => {
+                            if (tName.toLowerCase().includes(term)) return true;
+                            const task = dept.tarefas[tName];
+                            return Object.keys(task.colaboradores).some(cName => cName.toLowerCase().includes(term));
+                          });
+                        })
+                        .sort((a, b) => modalHierarchy.departments[b].tempo_segundos - modalHierarchy.departments[a].tempo_segundos)
+                        .map(deptName => {
+                          const dept = modalHierarchy.departments[deptName];
+                          const isDeptExpanded = modalExpandedDepts.has(deptName);
+                          const deptShare = modalHierarchy.totalGroupSeconds > 0 
+                            ? (dept.tempo_segundos / modalHierarchy.totalGroupSeconds) * 100 
+                            : 0;
+
+                          return (
+                            <React.Fragment key={`dept_${deptName}`}>
+                              {/* Level 1: Departamento */}
+                              <tr className="bg-brand-card/70 hover:bg-brand-card-bright/20 transition-colors font-semibold border-t border-brand-border/40">
+                                <td className="py-3 px-4">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleDeptExpand(deptName)}
+                                    className="flex items-center gap-2 text-left cursor-pointer focus:outline-none w-full"
+                                  >
+                                    <span className={`text-brand-primary shrink-0 transition-transform duration-200 ${isDeptExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                      <ChevronRight size={16} />
+                                    </span>
+                                    <div className="p-1 px-1.5 rounded bg-brand-primary/10 text-brand-primary border border-brand-primary/15 shrink-0">
+                                      <Briefcase size={14} />
+                                    </div>
+                                    <span className="font-extrabold text-white text-[13px] tracking-wide">
+                                      {deptName}
+                                    </span>
+                                    <span className="text-[10px] text-brand-text-muted font-mono font-normal ml-1">
+                                      ({Object.keys(dept.tarefas).length} {Object.keys(dept.tarefas).length === 1 ? 'atividade' : 'atividades'})
+                                    </span>
+                                  </button>
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono font-bold text-sky-400">
+                                  {dept.lancamentos.toLocaleString('pt-BR')}
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono font-extrabold text-white text-sm">
+                                  {formatSecondsToHms(dept.tempo_segundos)}
+                                  <span className="text-[10px] text-brand-text-muted font-normal block">
+                                    {(dept.tempo_segundos / 3600).toFixed(1)}h
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-center font-mono">
+                                  <span className="font-extrabold text-brand-primary text-xs bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded inline-block">
+                                    {formatSecondsToHms(dept.media_segundos)}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <span className="font-bold text-brand-primary">{deptShare.toFixed(1)}%</span>
+                                    <div className="w-16 bg-brand-card-light rounded-full h-1.5 overflow-hidden border border-brand-border/40 hidden sm:block">
+                                      <div className="bg-brand-primary h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, deptShare))}%` }} />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* Level 2: Atividades / Tarefas (Drill Down 1) */}
+                              {isDeptExpanded && Object.keys(dept.tarefas)
+                                .sort((a, b) => dept.tarefas[b].tempo_segundos - dept.tarefas[a].tempo_segundos)
+                                .map(taskName => {
+                                  const task = dept.tarefas[taskName];
+                                  const taskKey = `${deptName}:::${taskName}`;
+                                  const isTaskExpanded = modalExpandedTasks.has(taskKey);
+                                  const taskShare = dept.tempo_segundos > 0 
+                                    ? (task.tempo_segundos / dept.tempo_segundos) * 100 
+                                    : 0;
+
+                                  return (
+                                    <React.Fragment key={`task_${taskKey}`}>
+                                      <tr className="bg-brand-bg/40 hover:bg-brand-card-bright/15 transition-colors border-t border-brand-border/15">
+                                        <td className="py-2.5 px-4 pl-10">
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleTaskExpand(deptName, taskName)}
+                                            className="flex items-center gap-2 text-left cursor-pointer focus:outline-none w-full"
+                                          >
+                                            <span className={`text-emerald-400 shrink-0 transition-transform duration-200 ${isTaskExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                              <ChevronRight size={14} />
+                                            </span>
+                                            <div className="p-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 shrink-0">
+                                              <CheckCircle2 size={12} />
+                                            </div>
+                                            <span className="font-bold text-white/90 text-xs">
+                                              {taskName}
+                                            </span>
+                                            <span className="text-[9px] text-brand-text-muted font-mono font-normal ml-1">
+                                              ({Object.keys(task.colaboradores).length} {Object.keys(task.colaboradores).length === 1 ? 'colab' : 'colabs'})
+                                            </span>
+                                          </button>
+                                        </td>
+                                        <td className="py-2.5 px-4 text-center font-mono text-xs font-semibold text-sky-400/90">
+                                          {task.lancamentos.toLocaleString('pt-BR')}
+                                        </td>
+                                        <td className="py-2.5 px-4 text-right font-mono font-bold text-white/90 text-xs">
+                                          {formatSecondsToHms(task.tempo_segundos)}
+                                          <span className="text-[9px] text-brand-text-muted font-normal block">
+                                            {(task.tempo_segundos / 3600).toFixed(1)}h
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-4 text-center font-mono">
+                                          <span className="font-bold text-emerald-400 text-xs bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded inline-block">
+                                            {formatSecondsToHms(task.media_segundos)}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-4 text-right font-mono">
+                                          <div className="flex items-center justify-end gap-2">
+                                            <span className="font-semibold text-emerald-400 text-xs">{taskShare.toFixed(1)}%</span>
+                                            <div className="w-16 bg-brand-card-light rounded-full h-1.5 overflow-hidden border border-brand-border/40 hidden sm:block">
+                                              <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, taskShare))}%` }} />
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Level 3: Colaboradores (Drill Down 2) */}
+                                      {isTaskExpanded && Object.keys(task.colaboradores)
+                                        .sort((a, b) => task.colaboradores[b].tempo_segundos - task.colaboradores[a].tempo_segundos)
+                                        .map(colabName => {
+                                          const colab = task.colaboradores[colabName];
+                                          const colabShare = task.tempo_segundos > 0 
+                                            ? (colab.tempo_segundos / task.tempo_segundos) * 100 
+                                            : 0;
+
+                                          return (
+                                            <tr key={`colab_${taskKey}_${colabName}`} className="bg-black/20 hover:bg-brand-card-bright/10 transition-colors border-t border-brand-border/10">
+                                              <td className="py-2 px-4 pl-16">
+                                                <div className="flex items-center gap-2">
+                                                  <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
+                                                    <User size={12} />
+                                                  </div>
+                                                  <span className="text-white/80 font-medium text-xs">
+                                                    {colabName}
+                                                  </span>
+                                                </div>
+                                              </td>
+                                              <td className="py-2 px-4 text-center font-mono text-xs text-sky-400/80">
+                                                {colab.lancamentos.toLocaleString('pt-BR')}
+                                              </td>
+                                              <td className="py-2 px-4 text-right font-mono font-medium text-white/80 text-xs">
+                                                {formatSecondsToHms(colab.tempo_segundos)}
+                                                <span className="text-[9px] text-brand-text-muted font-normal block">
+                                                  {(colab.tempo_segundos / 3600).toFixed(1)}h
+                                                </span>
+                                              </td>
+                                              <td className="py-2 px-4 text-center font-mono">
+                                                <span className="text-amber-400 text-xs font-mono bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded inline-block">
+                                                  {formatSecondsToHms(colab.media_segundos)}
+                                                </span>
+                                              </td>
+                                              <td className="py-2 px-4 text-right font-mono">
+                                                <div className="flex items-center justify-end gap-2">
+                                                  <span className="text-amber-400 text-xs font-mono">{colabShare.toFixed(1)}%</span>
+                                                  <div className="w-16 bg-brand-card-light rounded-full h-1 overflow-hidden border border-brand-border/40 hidden sm:block">
+                                                    <div className="bg-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, colabShare))}%` }} />
+                                                  </div>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                    </React.Fragment>
+                                  );
+                                })}
+                            </React.Fragment>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

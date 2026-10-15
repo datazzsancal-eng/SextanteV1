@@ -113,18 +113,19 @@ export default function Sidebar({
   return (
     <aside 
       id="sextante-sidebar"
-      className={`sticky top-0 h-screen bg-brand-bg border-r border-brand-border flex flex-col shrink-0 transition-all duration-300 ease-in-out relative z-[100] ${
+      className={`sticky top-0 h-screen bg-brand-bg border-r border-brand-border flex flex-col shrink-0 transition-all duration-300 ease-in-out relative z-[150] overflow-visible select-none ${
         isCollapsed ? 'w-20' : 'w-64'
       }`}
     >
-      {/* Collapsible Trigger Button overlap in right border margin */}
+      {/* Collapsible Trigger Button prominent on right border */}
       <button
         id="sidebar-collapse-toggle"
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute right-0 top-8 w-6 h-6 rounded-full bg-brand-accent hover:bg-brand-primary text-white flex items-center justify-center cursor-pointer border border-brand-border shadow-lg transition-all hover:scale-110 active:scale-95 z-[110] translate-x-1/2"
+        className="absolute -right-3.5 top-7 w-7 h-7 rounded-full bg-brand-primary hover:bg-brand-primary/80 text-white flex items-center justify-center cursor-pointer border-2 border-brand-card shadow-2xl transition-all hover:scale-110 active:scale-95 z-[250]"
         title={isCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
+        aria-label={isCollapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
       >
-        {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        {isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
       </button>
 
       <div className={`overflow-y-auto flex-1 flex flex-col justify-between w-full h-full no-scrollbar ${
@@ -132,7 +133,7 @@ export default function Sidebar({
       }`}>
         <div className="w-full flex flex-col">
         {/* Brand Header */}
-        <div id="brand-header-container" className={`mb-10 select-none flex ${isCollapsed ? 'justify-center' : 'justify-start'}`}>
+        <div id="brand-header-container" className={`mb-10 select-none flex items-center ${isCollapsed ? 'justify-center' : 'justify-start'}`}>
           {isCollapsed ? (
             <img 
               src="https://raw.githubusercontent.com/datazzsancal-eng/logos/refs/heads/main/sextante/logo_ico_sextante_v.png" 
@@ -145,7 +146,7 @@ export default function Sidebar({
               src="https://raw.githubusercontent.com/datazzsancal-eng/logos/refs/heads/main/sextante/sextante_v.png" 
               alt="Sextante Financial Controller" 
               referrerPolicy="no-referrer"
-              className="h-8 max-w-full object-contain"
+              className="h-8 max-w-[170px] object-contain"
             />
           )}
         </div>

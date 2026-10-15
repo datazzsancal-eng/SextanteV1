@@ -49,10 +49,6 @@ export default function AnalisesView() {
   const [endPeriod, setEndPeriod] = useState<string>('');
   const [availablePeriods, setAvailablePeriods] = useState<{ value: string; label: string; ano: number; mes: number }[]>([]);
 
-  // Department filter
-  const [availableDepartments, setAvailableDepartments] = useState<{ id: string; nome: string }[]>([]);
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('all');
-
   // Dimension / View Mode
   type DimensionType = 'grupo' | 'empresa' | 'departamento' | 'colaborador' | 'tarefa' | 'tipo_pessoa' | 'periodo';
   const [dimension, setDimension] = useState<DimensionType>('grupo');
@@ -62,42 +58,39 @@ export default function AnalisesView() {
   const [sortField, setSortField] = useState<string>('tempo_segundos');
   const [sortAsc, setSortAsc] = useState<boolean>(false);
 
-  // Drilldown Modal States (Grupo e Empresa)
+  // Drilldown Modal States (Grupo, Empresa e Departamento)
   interface DrilldownModalTarget {
-    type: 'grupo' | 'empresa';
+    type: 'grupo' | 'empresa' | 'departamento';
     key: string;
     name: string;
     secondaryName?: string;
     empresa_id?: string;
+    depto_id?: string;
   }
   const [selectedEntityModal, setSelectedEntityModal] = useState<DrilldownModalTarget | null>(null);
   const [modalLoading, setModalLoading] = useState<boolean>(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalRecords, setModalRecords] = useState<any[]>([]);
-  const [modalExpandedDepts, setModalExpandedDepts] = useState<Set<string>>(new Set());
+  const [modalExpandedPrimary, setModalExpandedPrimary] = useState<Set<string>>(new Set());
   const [modalExpandedTasks, setModalExpandedTasks] = useState<Set<string>>(new Set());
   const [modalSearchTerm, setModalSearchTerm] = useState<string>('');
 
-  // Discover periods and departments on mount
+  // Discover periods on mount
   useEffect(() => {
     const initFilterOptions = async () => {
       if (isSupabaseConfigured && supabase) {
         try {
           const { data, error } = await supabase
             .from('vw_apontamento_mensal_resumo')
-            .select('aponta_ano, aponta_mes, depto_id, depto_nome, depto_calcula_sn');
+            .select('aponta_ano, aponta_mes');
 
           if (!error && data && data.length > 0) {
             // Periods
             const pSet = new Set<string>();
-            const deptMap = new Map<string, string>();
 
             data.forEach((row: any) => {
               if (row.aponta_ano && row.aponta_mes) {
                 pSet.add(`${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}`);
-              }
-              if (row.depto_id !== undefined && row.depto_id !== null && row.depto_nome && (row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined)) {
-                deptMap.set(String(row.depto_id), String(row.depto_nome).trim());
               }
             });
 
@@ -118,13 +111,6 @@ export default function AnalisesView() {
                 setStartPeriod(sortedPeriods[Math.min(sortedPeriods.length - 1, 5)]?.value || sortedPeriods[0].value);
                 setEndPeriod(sortedPeriods[0].value);
               }
-            }
-
-            const deptsList = Array.from(deptMap.entries())
-              .map(([id, nome]) => ({ id, nome }))
-              .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-            if (deptsList.length > 0) {
-              setAvailableDepartments(deptsList);
             }
           }
         } catch (err) {
@@ -178,9 +164,6 @@ export default function AnalisesView() {
           if (activeMonths.length > 0) {
             query = query.in('aponta_mes', activeMonths);
           }
-          if (selectedDepartmentId !== 'all') {
-            query = query.eq('depto_id', selectedDepartmentId);
-          }
 
           const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
           if (error) throw error;
@@ -188,8 +171,7 @@ export default function AnalisesView() {
           if (data && data.length > 0) {
             const validPeriodSet = new Set(activePeriods.map(p => `${p.ano}-${p.mes}`));
             const filtered = data.filter((row: any) => 
-              validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`) &&
-              (selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId))
+              validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`)
             );
             allRecords = [...allRecords, ...filtered];
 
@@ -212,7 +194,7 @@ export default function AnalisesView() {
     };
 
     fetchData();
-  }, [startPeriod, endPeriod, selectedDepartmentId, availablePeriods, refreshTrigger]);
+  }, [startPeriod, endPeriod, availablePeriods, refreshTrigger]);
 
   // Fetch detailed records for selected entity (grupo ou empresa) from vw_apontamento_mensal_detalhe
   const fetchEntityDetails = async (target: DrilldownModalTarget) => {
@@ -220,7 +202,7 @@ export default function AnalisesView() {
     setModalLoading(true);
     setModalError(null);
     setModalRecords([]);
-    setModalExpandedDepts(new Set());
+    setModalExpandedPrimary(new Set());
     setModalExpandedTasks(new Set());
     setModalSearchTerm('');
 
@@ -259,6 +241,14 @@ export default function AnalisesView() {
           } else {
             query = query.eq('empresa_nome', target.name);
           }
+        } else if (target.type === 'departamento') {
+          if (target.depto_id && !isNaN(Number(target.depto_id))) {
+            query = query.eq('depto_id', Number(target.depto_id));
+          } else if (!target.name || target.name === 'Sem Departamento' || target.name === 'SEM DEPTO' || target.name === 'SEM DEPARTAMENTO') {
+            query = query.or('depto_nome.is.null,depto_nome.eq.Sem Departamento,depto_nome.eq.SEM DEPARTAMENTO,depto_nome.eq.""');
+          } else {
+            query = query.eq('depto_nome', target.name);
+          }
         }
 
         if (activeYears.length > 0) {
@@ -266,9 +256,6 @@ export default function AnalisesView() {
         }
         if (activeMonths.length > 0) {
           query = query.in('aponta_mes', activeMonths);
-        }
-        if (selectedDepartmentId !== 'all') {
-          query = query.eq('depto_id', selectedDepartmentId);
         }
 
         const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
@@ -280,9 +267,8 @@ export default function AnalisesView() {
         if (data && data.length > 0) {
           const validData = data.filter((row: any) => {
             const matchPeriod = validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`);
-            const matchDept = selectedDepartmentId === 'all' || String(row.depto_id) === String(selectedDepartmentId);
             const matchDeptCalc = row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined;
-            return matchPeriod && matchDept && matchDeptCalc;
+            return matchPeriod && matchDeptCalc;
           });
           allRecords = [...allRecords, ...validData];
           if (data.length < pageSize || allRecords.length > 30000) {
@@ -309,19 +295,26 @@ export default function AnalisesView() {
             const rName = (r.empresa_nome || r.cliente_nome || '').trim().toUpperCase();
             return rName === normEmpName;
           });
+        } else if (target.type === 'departamento') {
+          const normDept = (target.name || '').trim().toUpperCase();
+          fallbackRows = rawData.filter(r => {
+            if (target.depto_id && String(r.depto_id) === String(target.depto_id)) return true;
+            const rName = (r.depto_nome || '').trim().toUpperCase();
+            return rName === normDept || (!rName && (normDept === 'SEM DEPARTAMENTO' || normDept === 'SEM DEPTO'));
+          });
         }
 
         if (fallbackRows.length > 0) {
           allRecords = fallbackRows.map(r => ({
             grupo_nome: r.grupo_nome,
             empresa_id: r.empresa_id || r.cliente_id,
-            empresa_nome: r.empresa_nome || r.cliente_nome || target.name,
-            depto_id: r.depto_id,
-            depto_nome: r.depto_nome || 'Sem Departamento',
+            empresa_nome: r.empresa_nome || r.cliente_nome || (target.type === 'empresa' ? target.name : 'Empresa Geral'),
+            depto_id: r.depto_id || (target.type === 'departamento' ? target.depto_id : undefined),
+            depto_nome: r.depto_nome || (target.type === 'departamento' ? target.name : 'Sem Departamento'),
             tarefa_nome: r.tarefa_nome || r.tarefa || 'Atividade Operacional Geral',
-            colaborador_nome: r.colaborador_nome || 'Colaboradores do Departamento',
-            aponta_qtde_segundos: r.aponta_qtde_segundos || r.tempo_segundos || 0,
-            aponta_qtde_lancamentos: r.aponta_qtde_lancamentos || r.qtde_lancamentos || 1,
+            colaborador_nome: r.colaborador_nome || 'Colaboradores',
+            aponta_qtde_segundos: Number(r.aponta_qtde_segundos) || Number(r.tempo_segundos) || 0,
+            aponta_qtde_lancamentos: Number(r.aponta_qtde_lancamentos) || Number(r.qtde_lancamentos) || 1,
             aponta_ano: r.aponta_ano,
             aponta_mes: r.aponta_mes,
             depto_calcula_sn: true
@@ -338,13 +331,17 @@ export default function AnalisesView() {
     }
   };
 
-  const handleOpenEntityModal = (item: { key: string; name: string; secondaryName?: string; empresa_id?: string }, type: 'grupo' | 'empresa') => {
+  const handleOpenEntityModal = (
+    item: { key: string; name: string; secondaryName?: string; empresa_id?: string; depto_id?: string }, 
+    type: 'grupo' | 'empresa' | 'departamento'
+  ) => {
     const target: DrilldownModalTarget = {
       type,
       key: item.key,
       name: item.name,
       secondaryName: item.secondaryName,
-      empresa_id: item.empresa_id
+      empresa_id: item.empresa_id,
+      depto_id: item.depto_id || (type === 'departamento' ? item.key : undefined)
     };
     setSelectedEntityModal(target);
     fetchEntityDetails(target);
@@ -366,18 +363,18 @@ export default function AnalisesView() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedEntityModal]);
 
-  const toggleDeptExpand = (deptName: string) => {
-    const next = new Set(modalExpandedDepts);
-    if (next.has(deptName)) {
-      next.delete(deptName);
+  const togglePrimaryExpand = (primaryName: string) => {
+    const next = new Set(modalExpandedPrimary);
+    if (next.has(primaryName)) {
+      next.delete(primaryName);
     } else {
-      next.add(deptName);
+      next.add(primaryName);
     }
-    setModalExpandedDepts(next);
+    setModalExpandedPrimary(next);
   };
 
-  const toggleTaskExpand = (deptName: string, taskName: string) => {
-    const key = `${deptName}:::${taskName}`;
+  const toggleTaskExpand = (primaryName: string, taskName: string) => {
+    const key = `${primaryName}:::${taskName}`;
     const next = new Set(modalExpandedTasks);
     if (next.has(key)) {
       next.delete(key);
@@ -387,7 +384,9 @@ export default function AnalisesView() {
     setModalExpandedTasks(next);
   };
 
-  // Hierarchy for the drilldown modal (Departamento -> Atividade / Tarefa -> Colaborador)
+  // Hierarchy for the drilldown modal:
+  // - When target.type === 'departamento': Empresa -> Atividade / Tarefa -> Colaborador
+  // - When target.type === 'grupo' | 'empresa': Departamento -> Atividade / Tarefa -> Colaborador
   const modalHierarchy = useMemo(() => {
     let totalGroupSeconds = 0;
     let totalGroupLancamentos = 0;
@@ -407,18 +406,21 @@ export default function AnalisesView() {
       colaboradores: Record<string, ColabItem>;
     }
 
-    interface DeptItem {
-      depto_nome: string;
+    interface PrimaryGroupItem {
+      primary_nome: string;
       tempo_segundos: number;
       lancamentos: number;
       media_segundos: number;
       tarefas: Record<string, TaskItem>;
     }
 
-    const depts: Record<string, DeptItem> = {};
+    const groups: Record<string, PrimaryGroupItem> = {};
+    const isDeptView = selectedEntityModal?.type === 'departamento';
 
     modalRecords.forEach((row: any) => {
-      const deptName = row.depto_nome || 'SEM DEPARTAMENTO';
+      const primaryName = isDeptView
+        ? (row.empresa_nome || row.cliente_nome || 'SEM EMPRESA')
+        : (row.depto_nome || 'SEM DEPARTAMENTO');
       const taskName = row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO';
       const colabName = row.colaborador_nome || 'SEM COLABORADOR';
       const secs = Number(row.aponta_qtde_segundos) || Number(row.tempo_segundos) || 0;
@@ -427,20 +429,20 @@ export default function AnalisesView() {
       totalGroupSeconds += secs;
       totalGroupLancamentos += count;
 
-      if (!depts[deptName]) {
-        depts[deptName] = {
-          depto_nome: deptName,
+      if (!groups[primaryName]) {
+        groups[primaryName] = {
+          primary_nome: primaryName,
           tempo_segundos: 0,
           lancamentos: 0,
           media_segundos: 0,
           tarefas: {}
         };
       }
-      depts[deptName].tempo_segundos += secs;
-      depts[deptName].lancamentos += count;
+      groups[primaryName].tempo_segundos += secs;
+      groups[primaryName].lancamentos += count;
 
-      if (!depts[deptName].tarefas[taskName]) {
-        depts[deptName].tarefas[taskName] = {
+      if (!groups[primaryName].tarefas[taskName]) {
+        groups[primaryName].tarefas[taskName] = {
           tarefa_nome: taskName,
           tempo_segundos: 0,
           lancamentos: 0,
@@ -448,24 +450,24 @@ export default function AnalisesView() {
           colaboradores: {}
         };
       }
-      depts[deptName].tarefas[taskName].tempo_segundos += secs;
-      depts[deptName].tarefas[taskName].lancamentos += count;
+      groups[primaryName].tarefas[taskName].tempo_segundos += secs;
+      groups[primaryName].tarefas[taskName].lancamentos += count;
 
-      if (!depts[deptName].tarefas[taskName].colaboradores[colabName]) {
-        depts[deptName].tarefas[taskName].colaboradores[colabName] = {
+      if (!groups[primaryName].tarefas[taskName].colaboradores[colabName]) {
+        groups[primaryName].tarefas[taskName].colaboradores[colabName] = {
           colaborador_nome: colabName,
           tempo_segundos: 0,
           lancamentos: 0,
           media_segundos: 0
         };
       }
-      depts[deptName].tarefas[taskName].colaboradores[colabName].tempo_segundos += secs;
-      depts[deptName].tarefas[taskName].colaboradores[colabName].lancamentos += count;
+      groups[primaryName].tarefas[taskName].colaboradores[colabName].tempo_segundos += secs;
+      groups[primaryName].tarefas[taskName].colaboradores[colabName].lancamentos += count;
     });
 
-    Object.values(depts).forEach(d => {
-      d.media_segundos = d.lancamentos > 0 ? Math.round(d.tempo_segundos / d.lancamentos) : 0;
-      Object.values(d.tarefas).forEach(t => {
+    Object.values(groups).forEach(g => {
+      g.media_segundos = g.lancamentos > 0 ? Math.round(g.tempo_segundos / g.lancamentos) : 0;
+      Object.values(g.tarefas).forEach(t => {
         t.media_segundos = t.lancamentos > 0 ? Math.round(t.tempo_segundos / t.lancamentos) : 0;
         Object.values(t.colaboradores).forEach(c => {
           c.media_segundos = c.lancamentos > 0 ? Math.round(c.tempo_segundos / c.lancamentos) : 0;
@@ -479,38 +481,39 @@ export default function AnalisesView() {
       totalGroupSeconds,
       totalGroupLancamentos,
       mediaGroup,
-      departments: depts
+      primaryGroups: groups
     };
-  }, [modalRecords]);
+  }, [modalRecords, selectedEntityModal]);
 
   const handleModalExpandAll = () => {
-    const allDepts = new Set<string>();
+    const allPrimaries = new Set<string>();
     const allTasks = new Set<string>();
-    Object.keys(modalHierarchy.departments).forEach(deptName => {
-      allDepts.add(deptName);
-      const d = modalHierarchy.departments[deptName];
-      Object.keys(d.tarefas).forEach(taskName => {
-        allTasks.add(`${deptName}:::${taskName}`);
+    Object.keys(modalHierarchy.primaryGroups).forEach(primName => {
+      allPrimaries.add(primName);
+      const group = modalHierarchy.primaryGroups[primName];
+      Object.keys(group.tarefas).forEach(taskName => {
+        allTasks.add(`${primName}:::${taskName}`);
       });
     });
-    setModalExpandedDepts(allDepts);
+    setModalExpandedPrimary(allPrimaries);
     setModalExpandedTasks(allTasks);
   };
 
   const handleModalCollapseAll = () => {
-    setModalExpandedDepts(new Set());
+    setModalExpandedPrimary(new Set());
     setModalExpandedTasks(new Set());
   };
 
   // Aggregate data according to chosen dimension
   const aggregatedData = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; secondaryName?: string; empresa_id?: string; tempo_segundos: number; count: number; entitiesSet: Set<string> }>();
+    const map = new Map<string, { key: string; name: string; secondaryName?: string; empresa_id?: string; depto_id?: string; tempo_segundos: number; count: number; entitiesSet: Set<string> }>();
 
     rawData.forEach(row => {
       let key = 'N/A';
       let name = 'Não Informado';
       let secondaryName = undefined;
       let empresa_id = undefined;
+      let depto_id = undefined;
 
       const secs = row.aponta_qtde_segundos || row.tempo_segundos || 0;
 
@@ -528,6 +531,7 @@ export default function AnalisesView() {
         case 'departamento':
           key = String(row.depto_id || row.depto_nome || 'SEM DEPTO');
           name = row.depto_nome || 'Sem Departamento';
+          depto_id = row.depto_id ? String(row.depto_id) : undefined;
           break;
         case 'colaborador':
           key = row.colaborador_id || row.colaborador_nome || 'SEM COLABORADOR';
@@ -548,7 +552,7 @@ export default function AnalisesView() {
       }
 
       if (!map.has(key)) {
-        map.set(key, { key, name, secondaryName, empresa_id, tempo_segundos: 0, count: 0, entitiesSet: new Set() });
+        map.set(key, { key, name, secondaryName, empresa_id, depto_id, tempo_segundos: 0, count: 0, entitiesSet: new Set() });
       }
 
       const item = map.get(key)!;
@@ -574,13 +578,29 @@ export default function AnalisesView() {
 
     // Sort
     return filtered.sort((a, b) => {
-      let valA: any = a[sortField as keyof typeof a];
-      let valB: any = b[sortField as keyof typeof b];
+      let fieldKey = sortField;
+      if (fieldKey === 'grupo' || fieldKey === 'empresa') {
+        fieldKey = 'name';
+      } else if (fieldKey === 'grupo_empresa') {
+        fieldKey = 'secondaryName';
+      } else if (fieldKey === 'horas' || fieldKey === 'participacao' || fieldKey === 'share') {
+        fieldKey = 'tempo_segundos';
+      } else if (fieldKey === 'lancamentos') {
+        fieldKey = 'count';
+      } else if (fieldKey === 'media') {
+        fieldKey = 'media_segundos';
+      }
+
+      let valA: any = a[fieldKey as keyof typeof a];
+      let valB: any = b[fieldKey as keyof typeof b];
+
+      if (valA === undefined || valA === null) valA = typeof valB === 'string' ? '' : 0;
+      if (valB === undefined || valB === null) valB = typeof valA === 'string' ? '' : 0;
 
       if (typeof valA === 'string') {
-        return sortAsc ? valA.localeCompare(valB, 'pt-BR') : valB.localeCompare(valA, 'pt-BR');
+        return sortAsc ? valA.localeCompare(valB, 'pt-BR', { sensitivity: 'base' }) : valB.localeCompare(valA, 'pt-BR', { sensitivity: 'base' });
       }
-      return sortAsc ? valA - valB : valB - valA;
+      return sortAsc ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA));
     });
   }, [rawData, dimension, searchTerm, sortField, sortAsc]);
 
@@ -591,12 +611,49 @@ export default function AnalisesView() {
   const uniqueCompaniesCount = useMemo(() => new Set(rawData.map(r => r.empresa_id || r.empresa_nome).filter(Boolean)).size, [rawData]);
 
   const handleSort = (field: string) => {
-    if (sortField === field) {
+    let target = field;
+    if (target === 'grupo' || target === 'empresa') {
+      target = 'name';
+    } else if (target === 'grupo_empresa') {
+      target = 'secondaryName';
+    } else if (target === 'horas' || target === 'participacao' || target === 'share') {
+      target = 'tempo_segundos';
+    } else if (target === 'lancamentos') {
+      target = 'count';
+    } else if (target === 'media') {
+      target = 'media_segundos';
+    }
+
+    if (sortField === target) {
       setSortAsc(!sortAsc);
     } else {
-      setSortField(field);
-      setSortAsc(false);
+      setSortField(target);
+      // Strings (name, secondaryName) default to A-Z (true); numbers default to highest first (false)
+      if (target === 'name' || target === 'secondaryName') {
+        setSortAsc(true);
+      } else {
+        setSortAsc(false);
+      }
     }
+  };
+
+  const renderSortIcon = (field: string) => {
+    let target = field;
+    if (target === 'grupo' || target === 'empresa') target = 'name';
+    if (target === 'grupo_empresa') target = 'secondaryName';
+    if (target === 'horas' || target === 'participacao' || target === 'share') target = 'tempo_segundos';
+    if (target === 'lancamentos') target = 'count';
+    if (target === 'media') target = 'media_segundos';
+
+    const isActive = sortField === target;
+    if (!isActive) {
+      return <ArrowUpDown size={12} className="opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />;
+    }
+    return sortAsc ? (
+      <ArrowUp size={12} className="text-brand-primary font-bold shrink-0 animate-in fade-in" />
+    ) : (
+      <ArrowDown size={12} className="text-brand-primary font-bold shrink-0 animate-in fade-in" />
+    );
   };
 
   const handleExportCSV = () => {
@@ -671,7 +728,7 @@ export default function AnalisesView() {
 
       {/* Filters & Dimensions Bar */}
       <div className="p-6 pb-3 bg-brand-card/30 border-b border-brand-border/60 shrink-0 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Start Period */}
           <div>
             <label className="block text-[11px] font-bold text-brand-text-muted uppercase tracking-wider mb-1">Período Inicial</label>
@@ -696,21 +753,6 @@ export default function AnalisesView() {
             >
               {availablePeriods.map(p => (
                 <option key={`end_${p.value}`} value={p.value}>{p.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Department Filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-brand-text-muted uppercase tracking-wider mb-1">Departamento</label>
-            <select
-              value={selectedDepartmentId}
-              onChange={(e) => setSelectedDepartmentId(e.target.value)}
-              className="w-full bg-brand-card border border-brand-border rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-primary"
-            >
-              <option value="all">Todos os Departamentos</option>
-              {availableDepartments.map(d => (
-                <option key={`dept_${d.id}`} value={d.id}>{d.nome}</option>
               ))}
             </select>
           </div>
@@ -858,53 +900,88 @@ export default function AnalisesView() {
                       <button 
                         type="button" 
                         onClick={() => handleSort('name')}
-                        className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+                        className={`flex items-center gap-1.5 transition-colors cursor-pointer group select-none ${
+                          sortField === 'name' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                        }`}
+                        title={dimension === 'grupo' ? 'Ordenar por Grupo de Empresas (A-Z ou Z-A)' : 'Ordenar por Nome'}
                       >
                         <span>{dimension === 'grupo' ? 'Grupo de Empresas' : dimension === 'empresa' ? 'Empresa / Cliente' : dimension === 'departamento' ? 'Departamento' : dimension === 'colaborador' ? 'Colaborador' : dimension === 'tarefa' ? 'Tarefa' : dimension === 'tipo_pessoa' ? 'Tipo de Pessoa' : 'Período'}</span>
-                        <ArrowUpDown size={12} />
+                        {renderSortIcon('name')}
                       </button>
                     </th>
                     {dimension === 'empresa' && (
-                      <th className="py-3 px-4">Grupo</th>
+                      <th className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('secondaryName')}
+                          className={`flex items-center gap-1.5 transition-colors cursor-pointer group select-none ${
+                            sortField === 'secondaryName' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                          }`}
+                          title="Ordenar por Grupo (A-Z ou Z-A)"
+                        >
+                          <span>Grupo</span>
+                          {renderSortIcon('secondaryName')}
+                        </button>
+                      </th>
                     )}
                     <th className="py-3 px-4 text-center">
                       <button 
                         type="button" 
                         onClick={() => handleSort('count')}
-                        className="flex items-center justify-center gap-1.5 hover:text-white transition-colors cursor-pointer w-full"
+                        className={`flex items-center justify-center gap-1.5 transition-colors cursor-pointer w-full group select-none ${
+                          sortField === 'count' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                        }`}
+                        title="Ordenar por Lançamentos (Maior ou Menor)"
                       >
                         <span>Lançamentos</span>
-                        <ArrowUpDown size={12} />
+                        {renderSortIcon('count')}
                       </button>
                     </th>
                     <th className="py-3 px-4 text-right">
                       <button 
                         type="button" 
                         onClick={() => handleSort('tempo_segundos')}
-                        className="flex items-center justify-end gap-1.5 hover:text-white transition-colors cursor-pointer w-full"
+                        className={`flex items-center justify-end gap-1.5 transition-colors cursor-pointer w-full group select-none ${
+                          sortField === 'tempo_segundos' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                        }`}
+                        title="Ordenar por Horas Trabalhadas (Maior ou Menor)"
                       >
                         <span>Horas Trabalhadas</span>
-                        <ArrowUpDown size={12} />
+                        {renderSortIcon('tempo_segundos')}
                       </button>
                     </th>
                     <th className="py-3 px-4 text-center">
                       <button 
                         type="button" 
                         onClick={() => handleSort('media_segundos')}
-                        className="flex items-center justify-center gap-1.5 hover:text-white transition-colors cursor-pointer w-full"
-                        title="Média de Horas por Lançamento/Atividade (Horas / Lançamentos)"
+                        className={`flex items-center justify-center gap-1.5 transition-colors cursor-pointer w-full group select-none ${
+                          sortField === 'media_segundos' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                        }`}
+                        title="Ordenar por Média de Horas por Lançamento/Atividade (Horas / Lançamentos)"
                       >
                         <span>Média/Ativ</span>
-                        <ArrowUpDown size={12} />
+                        {renderSortIcon('media_segundos')}
                       </button>
                     </th>
-                    <th className="py-3 px-4 text-right">Participação (%)</th>
+                    <th className="py-3 px-4 text-right">
+                      <button 
+                        type="button" 
+                        onClick={() => handleSort('tempo_segundos')}
+                        className={`flex items-center justify-end gap-1.5 transition-colors cursor-pointer w-full group select-none ${
+                          sortField === 'tempo_segundos' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                        }`}
+                        title="Ordenar por Participação (%)"
+                      >
+                        <span>Participação (%)</span>
+                        {renderSortIcon('tempo_segundos')}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-brand-border/20 font-sans text-xs">
                   {aggregatedData.map((item, idx) => {
                     const share = totalSecondsAll > 0 ? (item.tempo_segundos / totalSecondsAll) * 100 : 0;
-                    const isClickable = dimension === 'grupo' || dimension === 'empresa';
+                    const isClickable = dimension === 'grupo' || dimension === 'empresa' || dimension === 'departamento';
                     return (
                       <tr 
                         key={`row_${idx}`} 
@@ -919,12 +996,21 @@ export default function AnalisesView() {
                                 e.stopPropagation();
                                 handleOpenEntityModal(item, dimension);
                               }}
-                              className="text-left group/btn flex items-center gap-2 cursor-pointer focus:outline-none"
-                              title={`Clique para abrir o detalhamento por departamento, atividade e colaborador de ${item.name}`}
+                              className="text-left group/btn flex items-center gap-2 cursor-pointer focus:outline-none flex-wrap"
+                              title={
+                                dimension === 'departamento'
+                                  ? `Clique para abrir o detalhamento por empresa, atividade e colaborador de ${item.name}`
+                                  : `Clique para abrir o detalhamento por departamento, atividade e colaborador de ${item.name}`
+                              }
                             >
                               <span className="font-extrabold text-white text-[13px] group-hover/btn:text-brand-primary group-hover/btn:underline transition-colors">
                                 {item.name}
                               </span>
+                              {dimension === 'grupo' && item.empresasCount !== undefined && item.empresasCount > 0 && (
+                                <span className="text-[10px] text-brand-text-muted bg-brand-primary/10 border border-brand-primary/20 px-1.5 py-0.5 rounded font-mono font-medium">
+                                  {item.empresasCount} {item.empresasCount === 1 ? 'empresa' : 'empresas'}
+                                </span>
+                              )}
                               <span className="p-1 rounded bg-brand-primary/10 text-brand-primary border border-brand-primary/20 opacity-70 group-hover/btn:opacity-100 group-hover/btn:scale-110 transition-all shrink-0">
                                 <Eye size={12} />
                               </span>
@@ -991,22 +1077,34 @@ export default function AnalisesView() {
             <div className="px-6 py-4 bg-brand-card-light/60 border-b border-brand-border/60 flex flex-wrap items-center justify-between gap-4 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="p-2.5 rounded-xl bg-brand-primary/10 text-brand-primary border border-brand-primary/20 shrink-0">
-                  {selectedEntityModal.type === 'empresa' ? <Building2 size={22} /> : <Layers size={22} />}
+                  {selectedEntityModal.type === 'empresa' ? (
+                    <Building2 size={22} />
+                  ) : selectedEntityModal.type === 'departamento' ? (
+                    <Briefcase size={22} />
+                  ) : (
+                    <Layers size={22} />
+                  )}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] uppercase font-bold tracking-wider text-brand-primary bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded">
-                      {selectedEntityModal.type === 'empresa' ? 'Empresa / Cliente' : 'Grupo de Empresa'}
+                      {selectedEntityModal.type === 'empresa'
+                        ? 'Empresa / Cliente'
+                        : selectedEntityModal.type === 'departamento'
+                        ? 'Departamento'
+                        : 'Grupo de Empresa'}
                     </span>
                     <h2 className="text-base font-extrabold text-white truncate max-w-xl">
                       {selectedEntityModal.name}
                     </h2>
                   </div>
                   <p className="text-xs text-brand-text-muted mt-0.5">
-                    {selectedEntityModal.type === 'empresa' && selectedEntityModal.secondaryName ? (
-                      <span>Grupo: <strong className="text-brand-text-muted/90">{selectedEntityModal.secondaryName}</strong> • Detalhamento por Departamento &gt; Atividade &gt; Colaborador</span>
+                    {selectedEntityModal.type === 'departamento' ? (
+                      <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Empresa &gt; Tarefa &gt; Colaborador</strong></span>
+                    ) : selectedEntityModal.type === 'empresa' && selectedEntityModal.secondaryName ? (
+                      <span>Grupo: <strong className="text-brand-text-muted/90">{selectedEntityModal.secondaryName}</strong> • Detalhamento por <strong className="text-brand-text-muted/90">Departamento &gt; Atividade &gt; Colaborador</strong></span>
                     ) : (
-                      <span>Detalhamento de esforço por Departamento &gt; Atividade &gt; Colaborador</span>
+                      <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Departamento &gt; Atividade &gt; Colaborador</strong></span>
                     )}
                   </p>
                 </div>
@@ -1076,7 +1174,11 @@ export default function AnalisesView() {
                   type="text"
                   value={modalSearchTerm}
                   onChange={(e) => setModalSearchTerm(e.target.value)}
-                  placeholder="Filtrar departamento, tarefa..."
+                  placeholder={
+                    selectedEntityModal.type === 'departamento'
+                      ? 'Filtrar empresa, tarefa, colaborador...'
+                      : 'Filtrar departamento, atividade, colaborador...'
+                  }
                   className="w-full bg-brand-card border border-brand-border rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-brand-text-muted/50 focus:outline-none focus:border-brand-primary"
                 />
               </div>
@@ -1090,6 +1192,8 @@ export default function AnalisesView() {
                   <p className="text-sm font-medium text-brand-text-muted">
                     {selectedEntityModal.type === 'empresa'
                       ? 'Carregando apontamentos detalhados da empresa...'
+                      : selectedEntityModal.type === 'departamento'
+                      ? 'Carregando apontamentos detalhados do departamento...'
                       : 'Carregando apontamentos detalhados do grupo...'}
                   </p>
                 </div>
@@ -1097,12 +1201,20 @@ export default function AnalisesView() {
                 <div className="py-24 text-center space-y-3 text-rose-400">
                   <p className="text-sm">{modalError}</p>
                 </div>
-              ) : Object.keys(modalHierarchy.departments).length === 0 ? (
+              ) : Object.keys(modalHierarchy.primaryGroups).length === 0 ? (
                 <div className="py-24 text-center space-y-3">
-                  <Briefcase size={40} className="text-brand-text-muted/30 mx-auto" />
+                  {selectedEntityModal.type === 'departamento' ? (
+                    <Briefcase size={40} className="text-brand-text-muted/30 mx-auto" />
+                  ) : selectedEntityModal.type === 'empresa' ? (
+                    <Building2 size={40} className="text-brand-text-muted/30 mx-auto" />
+                  ) : (
+                    <Layers size={40} className="text-brand-text-muted/30 mx-auto" />
+                  )}
                   <p className="text-sm italic text-brand-text-muted">
                     {selectedEntityModal.type === 'empresa'
                       ? 'Nenhum apontamento detalhado encontrado para esta empresa no período selecionado.'
+                      : selectedEntityModal.type === 'departamento'
+                      ? 'Nenhum apontamento detalhado encontrado para este departamento no período selecionado.'
                       : 'Nenhum apontamento detalhado encontrado para este grupo no período selecionado.'}
                   </p>
                 </div>
@@ -1111,7 +1223,11 @@ export default function AnalisesView() {
                   <table className="w-full text-left border-collapse">
                     <thead className="bg-brand-card-light/80 sticky top-0 z-10 border-b border-brand-border/60">
                       <tr className="text-[11px] font-bold text-brand-text-muted/80 tracking-wider uppercase select-none">
-                        <th className="py-3 px-4">Departamento / Atividade / Colaborador</th>
+                        <th className="py-3 px-4">
+                          {selectedEntityModal.type === 'departamento'
+                            ? 'Empresa / Tarefa / Colaborador'
+                            : 'Departamento / Atividade / Colaborador'}
+                        </th>
                         <th className="py-3 px-4 text-center w-32">Lançamentos</th>
                         <th className="py-3 px-4 text-right w-40">Horas Trabalhadas</th>
                         <th className="py-3 px-4 text-center w-36">Média/Ativ</th>
@@ -1119,83 +1235,84 @@ export default function AnalisesView() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-brand-border/20 font-sans text-xs">
-                      {Object.keys(modalHierarchy.departments)
-                        .filter(deptName => {
+                      {Object.keys(modalHierarchy.primaryGroups)
+                        .filter(primaryName => {
                           if (!modalSearchTerm) return true;
                           const term = modalSearchTerm.toLowerCase();
-                          if (deptName.toLowerCase().includes(term)) return true;
-                          const dept = modalHierarchy.departments[deptName];
-                          return Object.keys(dept.tarefas).some(tName => {
+                          if (primaryName.toLowerCase().includes(term)) return true;
+                          const group = modalHierarchy.primaryGroups[primaryName];
+                          return Object.keys(group.tarefas).some(tName => {
                             if (tName.toLowerCase().includes(term)) return true;
-                            const task = dept.tarefas[tName];
+                            const task = group.tarefas[tName];
                             return Object.keys(task.colaboradores).some(cName => cName.toLowerCase().includes(term));
                           });
                         })
-                        .sort((a, b) => modalHierarchy.departments[b].tempo_segundos - modalHierarchy.departments[a].tempo_segundos)
-                        .map(deptName => {
-                          const dept = modalHierarchy.departments[deptName];
-                          const isDeptExpanded = modalExpandedDepts.has(deptName);
-                          const deptShare = modalHierarchy.totalGroupSeconds > 0 
-                            ? (dept.tempo_segundos / modalHierarchy.totalGroupSeconds) * 100 
+                        .sort((a, b) => modalHierarchy.primaryGroups[b].tempo_segundos - modalHierarchy.primaryGroups[a].tempo_segundos)
+                        .map(primaryName => {
+                          const group = modalHierarchy.primaryGroups[primaryName];
+                          const isPrimaryExpanded = modalExpandedPrimary.has(primaryName);
+                          const primaryShare = modalHierarchy.totalGroupSeconds > 0 
+                            ? (group.tempo_segundos / modalHierarchy.totalGroupSeconds) * 100 
                             : 0;
+                          const isDeptModal = selectedEntityModal.type === 'departamento';
 
                           return (
-                            <React.Fragment key={`dept_${deptName}`}>
-                              {/* Level 1: Departamento */}
+                            <React.Fragment key={`prim_${primaryName}`}>
+                              {/* Level 1: Empresa (se modal departamento) ou Departamento (se modal grupo/empresa) */}
                               <tr className="bg-brand-card/70 hover:bg-brand-card-bright/20 transition-colors font-semibold border-t border-brand-border/40">
                                 <td className="py-3 px-4">
                                   <button
                                     type="button"
-                                    onClick={() => toggleDeptExpand(deptName)}
+                                    onClick={() => togglePrimaryExpand(primaryName)}
                                     className="flex items-center gap-2 text-left cursor-pointer focus:outline-none w-full"
                                   >
-                                    <span className={`text-brand-primary shrink-0 transition-transform duration-200 ${isDeptExpanded ? 'rotate-90' : 'rotate-0'}`}>
+                                    <span className={`text-brand-primary shrink-0 transition-transform duration-200 ${isPrimaryExpanded ? 'rotate-90' : 'rotate-0'}`}>
                                       <ChevronRight size={16} />
                                     </span>
                                     <div className="p-1 px-1.5 rounded bg-brand-primary/10 text-brand-primary border border-brand-primary/15 shrink-0">
-                                      <Briefcase size={14} />
+                                      {isDeptModal ? <Building2 size={14} /> : <Briefcase size={14} />}
                                     </div>
                                     <span className="font-extrabold text-white text-[13px] tracking-wide">
-                                      {deptName}
+                                      {primaryName}
                                     </span>
                                     <span className="text-[10px] text-brand-text-muted font-mono font-normal ml-1">
-                                      ({Object.keys(dept.tarefas).length} {Object.keys(dept.tarefas).length === 1 ? 'atividade' : 'atividades'})
+                                      ({Object.keys(group.tarefas).length} {Object.keys(group.tarefas).length === 1 ? (isDeptModal ? 'tarefa' : 'atividade') : (isDeptModal ? 'tarefas' : 'atividades')})
                                     </span>
                                   </button>
                                 </td>
                                 <td className="py-3 px-4 text-center font-mono font-bold text-sky-400">
-                                  {dept.lancamentos.toLocaleString('pt-BR')}
+                                  {group.lancamentos.toLocaleString('pt-BR')}
                                 </td>
                                 <td className="py-3 px-4 text-right font-mono font-extrabold text-white text-sm">
-                                  {formatSecondsToHms(dept.tempo_segundos)}
+                                  {formatSecondsToHms(group.tempo_segundos)}
                                   <span className="text-[10px] text-brand-text-muted font-normal block">
-                                    {(dept.tempo_segundos / 3600).toFixed(1)}h
+                                    {(group.tempo_segundos / 3600).toFixed(1)}h
                                   </span>
                                 </td>
                                 <td className="py-3 px-4 text-center font-mono">
                                   <span className="font-extrabold text-brand-primary text-xs bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded inline-block">
-                                    {formatSecondsToHms(dept.media_segundos)}
+                                    {formatSecondsToHms(group.media_segundos)}
                                   </span>
                                 </td>
                                 <td className="py-3 px-4 text-right font-mono">
                                   <div className="flex items-center justify-end gap-2">
-                                    <span className="font-bold text-brand-primary">{deptShare.toFixed(1)}%</span>
+                                    <span className="font-bold text-brand-primary">{primaryShare.toFixed(1)}%</span>
                                     <div className="w-16 bg-brand-card-light rounded-full h-1.5 overflow-hidden border border-brand-border/40 hidden sm:block">
-                                      <div className="bg-brand-primary h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, deptShare))}%` }} />
+                                      <div className="bg-brand-primary h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, primaryShare))}%` }} />
                                     </div>
                                   </div>
                                 </td>
                               </tr>
 
-                              {/* Level 2: Atividades / Tarefas (Drill Down 1) */}
-                              {isDeptExpanded && Object.keys(dept.tarefas)
-                                .sort((a, b) => dept.tarefas[b].tempo_segundos - dept.tarefas[a].tempo_segundos)
+                              {/* Level 2: Tarefas / Atividades (Drill Down 1) */}
+                              {isPrimaryExpanded && Object.keys(group.tarefas)
+                                .sort((a, b) => group.tarefas[b].tempo_segundos - group.tarefas[a].tempo_segundos)
                                 .map(taskName => {
-                                  const task = dept.tarefas[taskName];
-                                  const taskKey = `${deptName}:::${taskName}`;
+                                  const task = group.tarefas[taskName];
+                                  const taskKey = `${primaryName}:::${taskName}`;
                                   const isTaskExpanded = modalExpandedTasks.has(taskKey);
-                                  const taskShare = dept.tempo_segundos > 0 
-                                    ? (task.tempo_segundos / dept.tempo_segundos) * 100 
+                                  const taskShare = group.tempo_segundos > 0 
+                                    ? (task.tempo_segundos / group.tempo_segundos) * 100 
                                     : 0;
 
                                   return (
@@ -1204,7 +1321,7 @@ export default function AnalisesView() {
                                         <td className="py-2.5 px-4 pl-10">
                                           <button
                                             type="button"
-                                            onClick={() => toggleTaskExpand(deptName, taskName)}
+                                            onClick={() => toggleTaskExpand(primaryName, taskName)}
                                             className="flex items-center gap-2 text-left cursor-pointer focus:outline-none w-full"
                                           >
                                             <span className={`text-emerald-400 shrink-0 transition-transform duration-200 ${isTaskExpanded ? 'rotate-90' : 'rotate-0'}`}>

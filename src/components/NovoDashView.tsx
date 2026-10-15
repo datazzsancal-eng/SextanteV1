@@ -87,6 +87,8 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
   // Sorting states
   const [tempoCliSortField, setTempoCliSortField] = useState<'cliente_nome' | 'grupo_raiz' | 'cliente_codigo' | 'total_segundos' | 'valor_lacto'>('total_segundos');
   const [tempoCliSortAsc, setTempoCliSortAsc] = useState<boolean>(false);
+  const [groupSortField, setGroupSortField] = useState<'grupo' | 'horas' | 'media' | 'valor' | 'share'>('horas');
+  const [groupSortAsc, setGroupSortAsc] = useState<boolean>(false);
 
   // Nested expansion sets
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
@@ -918,8 +920,25 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
       g.clientes.push(cli);
     });
 
-    return Array.from(map.values()).sort((a, b) => b.tempo_segundos - a.tempo_segundos);
-  }, [filteredTempoCli]);
+    const list = Array.from(map.values());
+
+    return list.sort((a, b) => {
+      if (groupSortField === 'grupo') {
+        return groupSortAsc 
+          ? a.grupo_cliente_nome.localeCompare(b.grupo_cliente_nome, 'pt-BR')
+          : b.grupo_cliente_nome.localeCompare(a.grupo_cliente_nome, 'pt-BR');
+      }
+      if (groupSortField === 'media') {
+        const mediaA = a.activity_count > 0 ? a.tempo_segundos / a.activity_count : 0;
+        const mediaB = b.activity_count > 0 ? b.tempo_segundos / b.activity_count : 0;
+        return groupSortAsc ? mediaA - mediaB : mediaB - mediaA;
+      }
+      if (groupSortField === 'valor' || groupSortField === 'share') {
+        return groupSortAsc ? a.valor_lacto - b.valor_lacto : b.valor_lacto - a.valor_lacto;
+      }
+      return groupSortAsc ? a.tempo_segundos - b.tempo_segundos : b.tempo_segundos - a.tempo_segundos;
+    });
+  }, [filteredTempoCli, groupSortField, groupSortAsc]);
 
   // Group Rankings
   const groupRankings = useMemo(() => {
@@ -1386,6 +1405,20 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
   const renderSortIcon = (field: typeof tempoCliSortField) => {
     if (tempoCliSortField !== field) return <ArrowUpDown size={11} className="text-brand-text-muted/30 shrink-0" />;
     return tempoCliSortAsc ? <ArrowUp size={11} className="text-brand-primary shrink-0" /> : <ArrowDown size={11} className="text-brand-primary shrink-0" />;
+  };
+
+  const handleSortGroup = (field: typeof groupSortField) => {
+    if (groupSortField === field) {
+      setGroupSortAsc(!groupSortAsc);
+    } else {
+      setGroupSortField(field);
+      setGroupSortAsc(field === 'grupo');
+    }
+  };
+
+  const renderGroupSortIcon = (field: typeof groupSortField) => {
+    if (groupSortField !== field) return <ArrowUpDown size={11} className="text-brand-text-muted/30 shrink-0" />;
+    return groupSortAsc ? <ArrowUp size={11} className="text-brand-primary shrink-0" /> : <ArrowDown size={11} className="text-brand-primary shrink-0" />;
   };
 
   const toggleClientExpand = (clientName: string) => {
@@ -2107,13 +2140,71 @@ export default function NovoDashView({ isExecutiveView = true, toggleExecutiveVi
                           className="rounded border-brand-border text-brand-primary focus:ring-brand-primary/20 bg-brand-bg h-3.5 w-3.5 cursor-pointer accent-brand-primary"
                         />
                       </th>
-                      <th className="py-3 px-3 w-1/3 bg-brand-card-light">Grupo de Clientes</th>
+                      <th className="py-3 px-3 w-1/3 bg-brand-card-light">
+                        <button 
+                          type="button" 
+                          onClick={() => handleSortGroup('grupo')}
+                          className="flex items-center gap-1.5 hover:text-white cursor-pointer font-bold select-none text-left"
+                          title="Ordenar por Grupo (A-Z ou Z-A)"
+                        >
+                          Grupo de Clientes
+                          {renderGroupSortIcon('grupo')}
+                        </button>
+                      </th>
                       <th className="py-3 px-3 text-center bg-brand-card-light w-24">Score</th>
-                      <th className="py-3 px-4 text-center bg-brand-card-light w-32">Horas</th>
-                      <th className="py-3 px-4 text-center bg-brand-card-light w-32">Média/Ativ</th>
-                      <th className="py-3 px-4 text-right bg-brand-card-light w-32">Valor Lançamento</th>
+                      <th className="py-3 px-4 text-center bg-brand-card-light w-32">
+                        <div className="flex justify-center">
+                          <button 
+                            type="button" 
+                            onClick={() => handleSortGroup('horas')}
+                            className="flex items-center gap-1.5 hover:text-white cursor-pointer font-bold select-none"
+                            title="Ordenar por Horas Trabalhadas"
+                          >
+                            Horas
+                            {renderGroupSortIcon('horas')}
+                          </button>
+                        </div>
+                      </th>
+                      <th className="py-3 px-4 text-center bg-brand-card-light w-32">
+                        <div className="flex justify-center">
+                          <button 
+                            type="button" 
+                            onClick={() => handleSortGroup('media')}
+                            className="flex items-center gap-1.5 hover:text-white cursor-pointer font-bold select-none"
+                            title="Ordenar por Média de Horas por Atividade"
+                          >
+                            Média/Ativ
+                            {renderGroupSortIcon('media')}
+                          </button>
+                        </div>
+                      </th>
+                      <th className="py-3 px-4 text-right bg-brand-card-light w-32">
+                        <div className="flex justify-end">
+                          <button 
+                            type="button" 
+                            onClick={() => handleSortGroup('valor')}
+                            className="flex items-center gap-1.5 hover:text-white cursor-pointer font-bold select-none"
+                            title="Ordenar por Valor Lançamento"
+                          >
+                            Valor Lançamento
+                            {renderGroupSortIcon('valor')}
+                          </button>
+                        </div>
+                      </th>
                       <th className="py-3 px-4 text-right bg-brand-card-light w-32">Honorário</th>
-                      <th className="py-3 px-4 text-right bg-brand-card-light w-20">% Share</th>
+                      <th className="py-3 px-4 text-right bg-brand-card-light w-20">
+                        <div className="flex justify-end">
+                          <button 
+                            type="button" 
+                            onClick={() => handleSortGroup('share')}
+                            className="flex items-center gap-1.5 hover:text-white cursor-pointer font-bold select-none"
+                            title="Ordenar por % Share"
+                          >
+                            % Share
+                            {renderGroupSortIcon('share')}
+                          </button>
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-brand-border/30 font-sans text-xs">

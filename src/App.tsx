@@ -495,7 +495,7 @@ export default function App() {
   }, []);
 
   const handleTabChange = useCallback((tabId: string) => {
-    if (isLider && tabId !== 'dashlideranca') return;
+    if (isLider && tabId !== 'dashlideranca' && tabId !== 'analises') return;
     setCurrentTab(tabId);
   }, [isLider]);
 

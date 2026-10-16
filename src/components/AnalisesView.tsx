@@ -68,11 +68,13 @@ export default function AnalisesView() {
     depto_id?: string;
   }
   const [selectedEntityModal, setSelectedEntityModal] = useState<DrilldownModalTarget | null>(null);
+  const isSpecial4LevelView = selectedEntityModal?.type === 'tarefa' || selectedEntityModal?.type === 'colaborador';
   const [modalLoading, setModalLoading] = useState<boolean>(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalRecords, setModalRecords] = useState<any[]>([]);
   const [modalExpandedPrimary, setModalExpandedPrimary] = useState<Set<string>>(new Set());
   const [modalExpandedTasks, setModalExpandedTasks] = useState<Set<string>>(new Set());
+  const [modalExpandedLevel3, setModalExpandedLevel3] = useState<Set<string>>(new Set());
   const [modalSearchTerm, setModalSearchTerm] = useState<string>('');
 
   // Discover periods on mount
@@ -406,6 +408,17 @@ export default function AnalisesView() {
     setModalExpandedTasks(next);
   };
 
+  const toggleLevel3Expand = (primName: string, taskName: string, colabName: string) => {
+    const key = `${primName}:::${taskName}:::${colabName}`;
+    const next = new Set(modalExpandedLevel3);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    setModalExpandedLevel3(next);
+  };
+
   // Hierarchy for the drilldown modal:
   // - When target.type === 'departamento': Empresa -> Atividade / Tarefa -> Colaborador
   // - When target.type === 'grupo' | 'empresa': Departamento -> Atividade / Tarefa -> Colaborador
@@ -413,11 +426,19 @@ export default function AnalisesView() {
     let totalGroupSeconds = 0;
     let totalGroupLancamentos = 0;
 
+    interface EmpresaItem {
+      empresa_nome: string;
+      tempo_segundos: number;
+      lancamentos: number;
+      media_segundos: number;
+    }
+
     interface ColabItem {
       colaborador_nome: string;
       tempo_segundos: number;
       lancamentos: number;
       media_segundos: number;
+      empresas: Record<string, EmpresaItem>;
     }
 
     interface TaskItem {
@@ -449,15 +470,17 @@ export default function AnalisesView() {
         ? (row.empresa_nome || row.cliente_nome || 'SEM EMPRESA')
         : (row.depto_nome || 'SEM DEPARTAMENTO');
 
-      const taskName = isSpecial4LevelView
+      const taskName = isTaskView
+        ? (row.colaborador_nome || row.colaborador || row.nome_colab || row.usuario_nome || 'SEM COLABORADOR')
+        : isColabView
         ? (row.tarefa_nome || row.tarefa || selectedEntityModal?.name || 'SEM IDENTIFICAÇÃO')
-        : row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO';
+        : (row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO');
 
       const colabName = isSpecial4LevelView
         ? (row.grupo_nome || 'SEM GRUPO')
         : (row.colaborador_nome || row.colaborador || row.nome_colab || row.usuario_nome || 'SEM COLABORADOR');
 
-      const fourthName = isSpecial4LevelView
+      const empresaName = isSpecial4LevelView
         ? (row.empresa_nome || row.cliente_nome || 'SEM EMPRESA')
         : null;
 
@@ -491,18 +514,33 @@ export default function AnalisesView() {
       groups[primaryName].tarefas[taskName].tempo_segundos += secs;
       groups[primaryName].tarefas[taskName].lancamentos += count;
 
-      const subKey = isTaskView ? (fourthName || 'EMPRESA GERAL') : colabName;
+      const taskItem = groups[primaryName].tarefas[taskName];
 
-      if (!groups[primaryName].tarefas[taskName].colaboradores[subKey]) {
-        groups[primaryName].tarefas[taskName].colaboradores[subKey] = {
-          colaborador_nome: subKey,
+      if (!taskItem.colaboradores[colabName]) {
+        taskItem.colaboradores[colabName] = {
+          colaborador_nome: colabName,
           tempo_segundos: 0,
           lancamentos: 0,
-          media_segundos: 0
+          media_segundos: 0,
+          empresas: {}
         };
       }
-      groups[primaryName].tarefas[taskName].colaboradores[subKey].tempo_segundos += secs;
-      groups[primaryName].tarefas[taskName].colaboradores[subKey].lancamentos += count;
+      taskItem.colaboradores[colabName].tempo_segundos += secs;
+      taskItem.colaboradores[colabName].lancamentos += count;
+
+      if (isSpecial4LevelView && empresaName) {
+        const colabItem = taskItem.colaboradores[colabName];
+        if (!colabItem.empresas[empresaName]) {
+          colabItem.empresas[empresaName] = {
+            empresa_nome: empresaName,
+            tempo_segundos: 0,
+            lancamentos: 0,
+            media_segundos: 0
+          };
+        }
+        colabItem.empresas[empresaName].tempo_segundos += secs;
+        colabItem.empresas[empresaName].lancamentos += count;
+      }
     });
 
     Object.values(groups).forEach(g => {
@@ -511,6 +549,11 @@ export default function AnalisesView() {
         t.media_segundos = t.lancamentos > 0 ? Math.round(t.tempo_segundos / t.lancamentos) : 0;
         Object.values(t.colaboradores).forEach(c => {
           c.media_segundos = c.lancamentos > 0 ? Math.round(c.tempo_segundos / c.lancamentos) : 0;
+          if (isSpecial4LevelView) {
+            Object.values(c.empresas).forEach(e => {
+              e.media_segundos = e.lancamentos > 0 ? Math.round(e.tempo_segundos / e.lancamentos) : 0;
+            });
+          }
         });
       });
     });
@@ -528,20 +571,28 @@ export default function AnalisesView() {
   const handleModalExpandAll = () => {
     const allPrimaries = new Set<string>();
     const allTasks = new Set<string>();
+    const allLevel3 = new Set<string>();
     Object.keys(modalHierarchy.primaryGroups).forEach(primName => {
       allPrimaries.add(primName);
       const group = modalHierarchy.primaryGroups[primName];
       Object.keys(group.tarefas).forEach(taskName => {
-        allTasks.add(`${primName}:::${taskName}`);
+        const taskKey = `${primName}:::${taskName}`;
+        allTasks.add(taskKey);
+        const taskItem = group.tarefas[taskName];
+        Object.keys(taskItem.colaboradores).forEach(colabName => {
+          allLevel3.add(`${taskKey}:::${colabName}`);
+        });
       });
     });
     setModalExpandedPrimary(allPrimaries);
     setModalExpandedTasks(allTasks);
+    setModalExpandedLevel3(allLevel3);
   };
 
   const handleModalCollapseAll = () => {
     setModalExpandedPrimary(new Set());
     setModalExpandedTasks(new Set());
+    setModalExpandedLevel3(new Set());
   };
 
   // Aggregate data according to chosen dimension
@@ -1137,7 +1188,9 @@ export default function AnalisesView() {
                     </h2>
                   </div>
                   <p className="text-xs text-brand-text-muted mt-0.5">
-                    {selectedEntityModal.type === 'tarefa' || selectedEntityModal.type === 'colaborador' ? (
+                    {selectedEntityModal.type === 'tarefa' ? (
+                      <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Departamento &gt; Colaborador &gt; Grupo &gt; Empresa</strong></span>
+                    ) : selectedEntityModal.type === 'colaborador' ? (
                       <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Departamento &gt; Tarefa &gt; Grupo &gt; Empresa</strong></span>
                     ) : selectedEntityModal.type === 'departamento' ? (
                       <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Empresa &gt; Tarefa &gt; Colaborador</strong></span>
@@ -1267,6 +1320,8 @@ export default function AnalisesView() {
                           {selectedEntityModal.type === 'departamento'
                             ? 'Empresa / Tarefa / Colaborador'
                             : selectedEntityModal.type === 'tarefa'
+                            ? 'Departamento / Colaborador / Grupo / Empresa'
+                            : selectedEntityModal.type === 'colaborador'
                             ? 'Departamento / Tarefa / Grupo / Empresa'
                             : 'Departamento / Atividade / Colaborador'}
                         </th>
@@ -1413,17 +1468,43 @@ export default function AnalisesView() {
                                             ? (colab.tempo_segundos / task.tempo_segundos) * 100 
                                             : 0;
 
-                                          return (
+                                          const level3Key = `${taskKey}:::${colabName}`;
+                                           const isLevel3Expanded = modalExpandedLevel3.has(level3Key);
+                                           const hasEmpresas = isSpecial4LevelView && Object.keys(colab.empresas).length > 0;
+
+                                           return (
+                                             <React.Fragment key={`colab_${taskKey}_${colabName}`}>
                                             <tr key={`colab_${taskKey}_${colabName}`} className="bg-black/20 hover:bg-brand-card-bright/10 transition-colors border-t border-brand-border/10">
                                               <td className="py-2 px-4 pl-16">
-                                                <div className="flex items-center gap-2">
-                                                  <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
-                                                    <User size={12} />
+                                                {isSpecial4LevelView && Object.keys(colab.empresas).length > 0 ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => toggleLevel3Expand(primaryName, taskName, colabName)}
+                                                    className="flex items-center gap-2 text-left cursor-pointer focus:outline-none w-full"
+                                                  >
+                                                    <span className={`text-amber-400 shrink-0 transition-transform duration-200 ${modalExpandedLevel3.has(`${taskKey}:::${colabName}`) ? 'rotate-90' : 'rotate-0'}`}>
+                                                      <ChevronRight size={12} />
+                                                    </span>
+                                                    <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
+                                                      <Layers size={12} />
+                                                    </div>
+                                                    <span className="text-white/90 font-semibold text-xs">
+                                                      {colabName}
+                                                    </span>
+                                                    <span className="text-[9px] text-brand-text-muted font-mono font-normal ml-1">
+                                                      ({Object.keys(colab.empresas).length} {Object.keys(colab.empresas).length === 1 ? 'empresa' : 'empresas'})
+                                                    </span>
+                                                  </button>
+                                                ) : (
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
+                                                      <User size={12} />
+                                                    </div>
+                                                    <span className="text-white/80 font-medium text-xs">
+                                                      {colabName}
+                                                    </span>
                                                   </div>
-                                                  <span className="text-white/80 font-medium text-xs">
-                                                    {colabName}
-                                                  </span>
-                                                </div>
+                                                )}
                                               </td>
                                               <td className="py-2 px-4 text-center font-mono text-xs text-sky-400/80">
                                                 {colab.lancamentos.toLocaleString('pt-BR')}

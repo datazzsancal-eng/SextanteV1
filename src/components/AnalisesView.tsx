@@ -1468,12 +1468,7 @@ export default function AnalisesView() {
                                             ? (colab.tempo_segundos / task.tempo_segundos) * 100 
                                             : 0;
 
-                                          const level3Key = `${taskKey}:::${colabName}`;
-                                           const isLevel3Expanded = modalExpandedLevel3.has(level3Key);
-                                           const hasEmpresas = isSpecial4LevelView && Object.keys(colab.empresas).length > 0;
-
-                                           return (
-                                             <React.Fragment key={`colab_${taskKey}_${colabName}`}>
+                                          return (
                                             <tr key={`colab_${taskKey}_${colabName}`} className="bg-black/20 hover:bg-brand-card-bright/10 transition-colors border-t border-brand-border/10">
                                               <td className="py-2 px-4 pl-16">
                                                 {isSpecial4LevelView && Object.keys(colab.empresas).length > 0 ? (

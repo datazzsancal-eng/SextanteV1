@@ -60,6 +60,12 @@ export default function Sidebar({
     return normalized === 'lider' || normalized.includes('lider');
   }, [currentUser]);
 
+  const isColaborador = useMemo(() => {
+    if (!currentUser?.role) return false;
+    const normalized = currentUser.role.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return normalized === 'colaborador' || normalized.includes('colaborador');
+  }, [currentUser]);
+
   const menuItems1 = useMemo(() => {
     const items = [
       { id: 'novodash', label: 'Dash Executivo', icon: LayoutDashboard },
@@ -70,8 +76,11 @@ export default function Sidebar({
     if (isLider) {
       return items.filter(item => item.id === 'dashlideranca' || item.id === 'analises');
     }
+    if (isColaborador) {
+      return items.filter(item => item.id !== 'analises');
+    }
     return items;
-  }, [isLider]);
+  }, [isLider, isColaborador]);
 
   const menuItems2 = useMemo(() => {
     const items = [

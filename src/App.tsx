@@ -141,12 +141,23 @@ export default function App() {
     ? currentUser.role.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes("lider")
     : false;
 
+  const isColaborador = currentUser?.role
+    ? currentUser.role.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes("colaborador")
+    : false;
+
   // Auto-switch to leader dash if user is Lider
   useEffect(() => {
     if (isLider && currentTab !== 'dashlideranca') {
       setCurrentTab('dashlideranca');
     }
   }, [isLider, currentTab]);
+
+  // Prevent collaborator from accessing analises
+  useEffect(() => {
+    if (isColaborador && currentTab === 'analises') {
+      setCurrentTab('novodash');
+    }
+  }, [isColaborador, currentTab]);
 
   // Cycling function for active profile
   const handleCycleUser = useCallback(() => {
@@ -546,7 +557,7 @@ export default function App() {
             <DashLiderancaView />
           )}
 
-          {currentTab === 'analises' && (
+          {!isColaborador && currentTab === 'analises' && (
             <AnalisesView />
           )}
 

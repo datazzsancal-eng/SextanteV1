@@ -356,8 +356,8 @@ export default function AnalisesView() {
   };
 
   const handleOpenEntityModal = (
-    item: { key: string; name: string; secondaryName?: string; empresa_id?: string; depto_id?: string }, 
-    type: 'grupo' | 'empresa' | 'departamento' | 'tarefa'
+    item: { key: string; name: string; secondaryName?: string; empresa_id?: string; depto_id?: string; depto_nome?: string }, 
+    type: 'grupo' | 'empresa' | 'departamento' | 'tarefa' | 'colaborador'
   ) => {
     const target: DrilldownModalTarget = {
       type,
@@ -597,7 +597,18 @@ export default function AnalisesView() {
 
   // Aggregate data according to chosen dimension
   const aggregatedData = useMemo(() => {
-    const map = new Map<string, { key: string; name: string; secondaryName?: string; empresa_id?: string; depto_id?: string; tempo_segundos: number; count: number; entitiesSet: Set<string> }>();
+    const map = new Map<string, {
+      key: string;
+      name: string;
+      secondaryName?: string;
+      empresa_id?: string;
+      depto_id?: string;
+      depto_nome?: string;
+      deptosMap: Map<string, number>;
+      tempo_segundos: number;
+      count: number;
+      entitiesSet: Set<string>;
+    }>();
 
     rawData.forEach(row => {
       let key = 'N/A';
@@ -605,6 +616,7 @@ export default function AnalisesView() {
       let secondaryName = undefined;
       let empresa_id = undefined;
       let depto_id = undefined;
+      let depto_nome = undefined;
 
       const secs = row.aponta_qtde_segundos || row.tempo_segundos || 0;
 
@@ -627,6 +639,8 @@ export default function AnalisesView() {
         case 'colaborador':
           key = row.colaborador_id || row.colaborador_nome || 'SEM COLABORADOR';
           name = row.colaborador_nome || 'Colaborador não identificado';
+          depto_id = row.depto_id ? String(row.depto_id) : undefined;
+          depto_nome = row.depto_nome || row.departamento || undefined;
           break;
         case 'tarefa':
           key = row.tarefa_nome || row.tarefa || 'SEM TAREFA';
@@ -635,7 +649,18 @@ export default function AnalisesView() {
       }
 
       if (!map.has(key)) {
-        map.set(key, { key, name, secondaryName, empresa_id, depto_id, tempo_segundos: 0, count: 0, entitiesSet: new Set() });
+        map.set(key, {
+          key,
+          name,
+          secondaryName,
+          empresa_id,
+          depto_id,
+          depto_nome,
+          deptosMap: new Map<string, number>(),
+          tempo_segundos: 0,
+          count: 0,
+          entitiesSet: new Set()
+        });
       }
 
       const item = map.get(key)!;
@@ -644,19 +669,35 @@ export default function AnalisesView() {
       if (row.empresa_id || row.empresa_nome) {
         item.entitiesSet.add(row.empresa_id || row.empresa_nome);
       }
+      const rowDepto = (row.depto_nome || row.departamento || '').trim();
+      if (rowDepto) {
+        item.deptosMap.set(rowDepto, (item.deptosMap.get(rowDepto) || 0) + secs);
+      }
     });
 
-    const list = Array.from(map.values()).map(item => ({
-      ...item,
-      empresasCount: item.entitiesSet.size,
-      media_segundos: item.count > 0 ? Math.round(item.tempo_segundos / item.count) : 0
-    }));
+    const list = Array.from(map.values()).map(item => {
+      let resolvedDepto = item.depto_nome;
+      if (item.deptosMap && item.deptosMap.size > 0) {
+        const sortedDeptos = Array.from(item.deptosMap.entries()).sort((a, b) => b[1] - a[1]);
+        resolvedDepto = sortedDeptos[0][0];
+      }
+      return {
+        ...item,
+        depto_nome: resolvedDepto || 'Sem Departamento',
+        empresasCount: item.entitiesSet.size,
+        media_segundos: item.count > 0 ? Math.round(item.tempo_segundos / item.count) : 0
+      };
+    });
 
     // Filter by search term
     const filtered = list.filter(item => {
       if (!searchTerm) return true;
       const term = searchTerm.toLowerCase();
-      return item.name.toLowerCase().includes(term) || (item.secondaryName && item.secondaryName.toLowerCase().includes(term));
+      return (
+        item.name.toLowerCase().includes(term) ||
+        (item.secondaryName && item.secondaryName.toLowerCase().includes(term)) ||
+        (item.depto_nome && item.depto_nome.toLowerCase().includes(term))
+      );
     });
 
     // Sort
@@ -666,6 +707,8 @@ export default function AnalisesView() {
         fieldKey = 'name';
       } else if (fieldKey === 'grupo_empresa') {
         fieldKey = 'secondaryName';
+      } else if (fieldKey === 'departamento' || fieldKey === 'depto') {
+        fieldKey = 'depto_nome';
       } else if (fieldKey === 'horas' || fieldKey === 'participacao' || fieldKey === 'share') {
         fieldKey = 'tempo_segundos';
       } else if (fieldKey === 'lancamentos') {
@@ -699,6 +742,8 @@ export default function AnalisesView() {
       target = 'name';
     } else if (target === 'grupo_empresa') {
       target = 'secondaryName';
+    } else if (target === 'departamento' || target === 'depto') {
+      target = 'depto_nome';
     } else if (target === 'horas' || target === 'participacao' || target === 'share') {
       target = 'tempo_segundos';
     } else if (target === 'lancamentos') {
@@ -711,8 +756,8 @@ export default function AnalisesView() {
       setSortAsc(!sortAsc);
     } else {
       setSortField(target);
-      // Strings (name, secondaryName) default to A-Z (true); numbers default to highest first (false)
-      if (target === 'name' || target === 'secondaryName') {
+      // Strings (name, secondaryName, depto_nome) default to A-Z (true); numbers default to highest first (false)
+      if (target === 'name' || target === 'secondaryName' || target === 'depto_nome') {
         setSortAsc(true);
       } else {
         setSortAsc(false);
@@ -724,6 +769,7 @@ export default function AnalisesView() {
     let target = field;
     if (target === 'grupo' || target === 'empresa') target = 'name';
     if (target === 'grupo_empresa') target = 'secondaryName';
+    if (target === 'departamento' || target === 'depto') target = 'depto_nome';
     if (target === 'horas' || target === 'participacao' || target === 'share') target = 'tempo_segundos';
     if (target === 'lancamentos') target = 'count';
     if (target === 'media') target = 'media_segundos';
@@ -742,7 +788,9 @@ export default function AnalisesView() {
   const handleExportCSV = () => {
     if (aggregatedData.length === 0) return;
     try {
-      const headers = ['Visão', 'Nome', 'Tempo Total (HH:MM:SS)', 'Horas Decimais', 'Total de Apontamentos', 'Média/Ativ (HH:MM:SS)', 'Participação (%)'];
+      const headers = dimension === 'colaborador'
+        ? ['Visão', 'Colaborador', 'Departamento', 'Tempo Total (HH:MM:SS)', 'Horas Decimais', 'Total de Apontamentos', 'Média/Ativ (HH:MM:SS)', 'Participação (%)']
+        : ['Visão', 'Nome', 'Tempo Total (HH:MM:SS)', 'Horas Decimais', 'Total de Apontamentos', 'Média/Ativ (HH:MM:SS)', 'Participação (%)'];
       const csvRows = [headers.join(';')];
 
       aggregatedData.forEach(item => {
@@ -751,6 +799,7 @@ export default function AnalisesView() {
         const row = [
           dimension.toUpperCase(),
           `"${item.name.replace(/"/g, '""')}"`,
+          ...(dimension === 'colaborador' ? [`"${(item.depto_nome || 'Sem Departamento').replace(/"/g, '""')}"`] : []),
           `"${formatSecondsToHms(item.tempo_segundos)}"`,
           hoursDec,
           item.count,
@@ -990,6 +1039,21 @@ export default function AnalisesView() {
                         {renderSortIcon('name')}
                       </button>
                     </th>
+                    {dimension === 'colaborador' && (
+                      <th className="py-3 px-4">
+                        <button
+                          type="button"
+                          onClick={() => handleSort('depto_nome')}
+                          className={`flex items-center gap-1.5 transition-colors cursor-pointer group select-none ${
+                            sortField === 'depto_nome' ? 'text-brand-primary font-bold' : 'hover:text-white'
+                          }`}
+                          title="Ordenar por Departamento (A-Z ou Z-A)"
+                        >
+                          <span>Departamento</span>
+                          {renderSortIcon('depto_nome')}
+                        </button>
+                      </th>
+                    )}
                     {dimension === 'empresa' && (
                       <th className="py-3 px-4">
                         <button
@@ -1103,6 +1167,16 @@ export default function AnalisesView() {
                             <div className="text-[10px] text-brand-text-muted font-mono mt-0.5">Grupo: {item.secondaryName}</div>
                           )}
                         </td>
+                        {dimension === 'colaborador' && (
+                          <td className="py-3 px-4 text-xs">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-brand-primary/10 text-brand-primary border border-brand-primary/20 text-xs font-semibold">
+                              <Briefcase size={12} className="shrink-0 text-brand-primary" />
+                              <span className="truncate max-w-[220px]" title={item.depto_nome || 'Sem Departamento'}>
+                                {item.depto_nome || 'Sem Departamento'}
+                              </span>
+                            </span>
+                          </td>
+                        )}
                         {dimension === 'empresa' && (
                           <td className="py-3 px-4 font-mono text-xs text-brand-text-muted">{item.secondaryName || '-'}</td>
                         )}

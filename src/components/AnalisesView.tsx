@@ -50,7 +50,7 @@ export default function AnalisesView() {
   const [availablePeriods, setAvailablePeriods] = useState<{ value: string; label: string; ano: number; mes: number }[]>([]);
 
   // Dimension / View Mode
-  type DimensionType = 'grupo' | 'empresa' | 'departamento' | 'colaborador' | 'tarefa' | 'tipo_pessoa' | 'periodo';
+  type DimensionType = 'grupo' | 'empresa' | 'departamento' | 'colaborador' | 'tarefa';
   const [dimension, setDimension] = useState<DimensionType>('grupo');
 
   // Search and Sort
@@ -60,7 +60,7 @@ export default function AnalisesView() {
 
   // Drilldown Modal States (Grupo, Empresa e Departamento)
   interface DrilldownModalTarget {
-    type: 'grupo' | 'empresa' | 'departamento';
+    type: 'grupo' | 'empresa' | 'departamento' | 'tarefa' | 'colaborador';
     key: string;
     name: string;
     secondaryName?: string;
@@ -155,7 +155,7 @@ export default function AnalisesView() {
 
         while (hasMore) {
           let query = supabase
-            .from('vw_apontamento_mensal_resumo')
+            .from(dimension === 'colaborador' || dimension === 'tarefa' ? 'vw_apontamento_mensal_detalhe' : 'vw_apontamento_mensal_resumo')
             .select('*');
 
           if (activeYears.length > 0) {
@@ -170,12 +170,14 @@ export default function AnalisesView() {
 
           if (data && data.length > 0) {
             const validPeriodSet = new Set(activePeriods.map(p => `${p.ano}-${p.mes}`));
-            const filtered = data.filter((row: any) => 
-              validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`)
-            );
+            const filtered = data.filter((row: any) => {
+              const matchPeriod = validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`);
+              const matchDeptCalc = row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined;
+              return matchPeriod && matchDeptCalc;
+            });
             allRecords = [...allRecords, ...filtered];
 
-            if (data.length < pageSize) {
+            if (data.length < pageSize || allRecords.length > 30000) {
               hasMore = false;
             }
           } else {
@@ -194,7 +196,7 @@ export default function AnalisesView() {
     };
 
     fetchData();
-  }, [startPeriod, endPeriod, availablePeriods, refreshTrigger]);
+  }, [startPeriod, endPeriod, availablePeriods, refreshTrigger, dimension]);
 
   // Fetch detailed records for selected entity (grupo ou empresa) from vw_apontamento_mensal_detalhe
   const fetchEntityDetails = async (target: DrilldownModalTarget) => {
@@ -249,6 +251,14 @@ export default function AnalisesView() {
           } else {
             query = query.eq('depto_nome', target.name);
           }
+        } else if (target.type === 'tarefa') {
+          query = query.eq('tarefa_nome', target.name);
+        } else if (target.type === 'colaborador') {
+          if (target.name === 'SEM COLABORADOR' || !target.name) {
+            query = query.or('colaborador_nome.is.null,colaborador_nome.eq.SEM COLABORADOR,colaborador_nome.eq.""');
+          } else {
+            query = query.eq('colaborador_nome', target.name);
+          }
         }
 
         if (activeYears.length > 0) {
@@ -302,6 +312,18 @@ export default function AnalisesView() {
             const rName = (r.depto_nome || '').trim().toUpperCase();
             return rName === normDept || (!rName && (normDept === 'SEM DEPARTAMENTO' || normDept === 'SEM DEPTO'));
           });
+        } else if (target.type === 'tarefa') {
+          const normTask = (target.name || '').trim().toUpperCase();
+          fallbackRows = rawData.filter(r => {
+            const rTask = (r.tarefa_nome || r.tarefa || '').trim().toUpperCase();
+            return rTask === normTask;
+          });
+        } else if (target.type === 'colaborador') {
+          const normColab = (target.name || '').trim().toUpperCase();
+          fallbackRows = rawData.filter(r => {
+            const rColab = (r.colaborador_nome || '').trim().toUpperCase();
+            return rColab === normColab || (!rColab && normColab === 'SEM COLABORADOR');
+          });
         }
 
         if (fallbackRows.length > 0) {
@@ -333,7 +355,7 @@ export default function AnalisesView() {
 
   const handleOpenEntityModal = (
     item: { key: string; name: string; secondaryName?: string; empresa_id?: string; depto_id?: string }, 
-    type: 'grupo' | 'empresa' | 'departamento'
+    type: 'grupo' | 'empresa' | 'departamento' | 'tarefa'
   ) => {
     const target: DrilldownModalTarget = {
       type,
@@ -416,13 +438,29 @@ export default function AnalisesView() {
 
     const groups: Record<string, PrimaryGroupItem> = {};
     const isDeptView = selectedEntityModal?.type === 'departamento';
+    const isTaskView = selectedEntityModal?.type === 'tarefa';
+    const isColabView = selectedEntityModal?.type === 'colaborador';
+    const isSpecial4LevelView = isTaskView || isColabView;
 
     modalRecords.forEach((row: any) => {
-      const primaryName = isDeptView
+      const primaryName = isSpecial4LevelView
+        ? (row.depto_nome || 'SEM DEPARTAMENTO')
+        : isDeptView
         ? (row.empresa_nome || row.cliente_nome || 'SEM EMPRESA')
         : (row.depto_nome || 'SEM DEPARTAMENTO');
-      const taskName = row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO';
-      const colabName = row.colaborador_nome || 'SEM COLABORADOR';
+
+      const taskName = isSpecial4LevelView
+        ? (row.tarefa_nome || row.tarefa || selectedEntityModal?.name || 'SEM IDENTIFICAÇÃO')
+        : row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO';
+
+      const colabName = isSpecial4LevelView
+        ? (row.grupo_nome || 'SEM GRUPO')
+        : (row.colaborador_nome || row.colaborador || row.nome_colab || row.usuario_nome || 'SEM COLABORADOR');
+
+      const fourthName = isSpecial4LevelView
+        ? (row.empresa_nome || row.cliente_nome || 'SEM EMPRESA')
+        : null;
+
       const secs = Number(row.aponta_qtde_segundos) || Number(row.tempo_segundos) || 0;
       const count = Number(row.aponta_qtde_lancamentos) || Number(row.qtde_lancamentos) || 1;
 
@@ -453,16 +491,18 @@ export default function AnalisesView() {
       groups[primaryName].tarefas[taskName].tempo_segundos += secs;
       groups[primaryName].tarefas[taskName].lancamentos += count;
 
-      if (!groups[primaryName].tarefas[taskName].colaboradores[colabName]) {
-        groups[primaryName].tarefas[taskName].colaboradores[colabName] = {
-          colaborador_nome: colabName,
+      const subKey = isTaskView ? (fourthName || 'EMPRESA GERAL') : colabName;
+
+      if (!groups[primaryName].tarefas[taskName].colaboradores[subKey]) {
+        groups[primaryName].tarefas[taskName].colaboradores[subKey] = {
+          colaborador_nome: subKey,
           tempo_segundos: 0,
           lancamentos: 0,
           media_segundos: 0
         };
       }
-      groups[primaryName].tarefas[taskName].colaboradores[colabName].tempo_segundos += secs;
-      groups[primaryName].tarefas[taskName].colaboradores[colabName].lancamentos += count;
+      groups[primaryName].tarefas[taskName].colaboradores[subKey].tempo_segundos += secs;
+      groups[primaryName].tarefas[taskName].colaboradores[subKey].lancamentos += count;
     });
 
     Object.values(groups).forEach(g => {
@@ -540,14 +580,6 @@ export default function AnalisesView() {
         case 'tarefa':
           key = row.tarefa_nome || row.tarefa || 'SEM TAREFA';
           name = key;
-          break;
-        case 'tipo_pessoa':
-          key = row.tipo_pessoa || 'OUTROS';
-          name = key === 'PJ' ? 'Pessoa Jurídica (PJ)' : key === 'PF' ? 'Pessoa Física (PF)' : key;
-          break;
-        case 'periodo':
-          key = `${row.aponta_ano}-${String(row.aponta_mes).padStart(2, '0')}`;
-          name = `${getMonthName(row.aponta_mes)} / ${row.aponta_ano}`;
           break;
       }
 
@@ -782,8 +814,6 @@ export default function AnalisesView() {
             { id: 'departamento', label: 'Departamento', icon: Briefcase },
             { id: 'colaborador', label: 'Colaborador', icon: User },
             { id: 'tarefa', label: 'Tarefa', icon: CheckCircle2 },
-            { id: 'tipo_pessoa', label: 'Tipo de Pessoa (PJ/PF)', icon: Users },
-            { id: 'periodo', label: 'Período (Mês/Ano)', icon: Calendar },
           ].map((tab) => {
             const IconComp = tab.icon;
             const isSelected = dimension === tab.id;
@@ -981,7 +1011,7 @@ export default function AnalisesView() {
                 <tbody className="divide-y divide-brand-border/20 font-sans text-xs">
                   {aggregatedData.map((item, idx) => {
                     const share = totalSecondsAll > 0 ? (item.tempo_segundos / totalSecondsAll) * 100 : 0;
-                    const isClickable = dimension === 'grupo' || dimension === 'empresa' || dimension === 'departamento';
+                    const isClickable = dimension === 'grupo' || dimension === 'empresa' || dimension === 'departamento' || dimension === 'tarefa' || dimension === 'colaborador';
                     return (
                       <tr 
                         key={`row_${idx}`} 
@@ -1081,6 +1111,10 @@ export default function AnalisesView() {
                     <Building2 size={22} />
                   ) : selectedEntityModal.type === 'departamento' ? (
                     <Briefcase size={22} />
+                  ) : selectedEntityModal.type === 'tarefa' ? (
+                    <CheckCircle2 size={22} />
+                  ) : selectedEntityModal.type === 'colaborador' ? (
+                    <User size={22} />
                   ) : (
                     <Layers size={22} />
                   )}
@@ -1092,6 +1126,10 @@ export default function AnalisesView() {
                         ? 'Empresa / Cliente'
                         : selectedEntityModal.type === 'departamento'
                         ? 'Departamento'
+                        : selectedEntityModal.type === 'tarefa'
+                        ? 'Tarefa'
+                        : selectedEntityModal.type === 'colaborador'
+                        ? 'Colaborador'
                         : 'Grupo de Empresa'}
                     </span>
                     <h2 className="text-base font-extrabold text-white truncate max-w-xl">
@@ -1099,7 +1137,9 @@ export default function AnalisesView() {
                     </h2>
                   </div>
                   <p className="text-xs text-brand-text-muted mt-0.5">
-                    {selectedEntityModal.type === 'departamento' ? (
+                    {selectedEntityModal.type === 'tarefa' || selectedEntityModal.type === 'colaborador' ? (
+                      <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Departamento &gt; Tarefa &gt; Grupo &gt; Empresa</strong></span>
+                    ) : selectedEntityModal.type === 'departamento' ? (
                       <span>Detalhamento de esforço por <strong className="text-brand-text-muted/90">Empresa &gt; Tarefa &gt; Colaborador</strong></span>
                     ) : selectedEntityModal.type === 'empresa' && selectedEntityModal.secondaryName ? (
                       <span>Grupo: <strong className="text-brand-text-muted/90">{selectedEntityModal.secondaryName}</strong> • Detalhamento por <strong className="text-brand-text-muted/90">Departamento &gt; Atividade &gt; Colaborador</strong></span>
@@ -1226,6 +1266,8 @@ export default function AnalisesView() {
                         <th className="py-3 px-4">
                           {selectedEntityModal.type === 'departamento'
                             ? 'Empresa / Tarefa / Colaborador'
+                            : selectedEntityModal.type === 'tarefa'
+                            ? 'Departamento / Tarefa / Grupo / Empresa'
                             : 'Departamento / Atividade / Colaborador'}
                         </th>
                         <th className="py-3 px-4 text-center w-32">Lançamentos</th>

@@ -76,6 +76,10 @@ export default function AnalisesView() {
   const [modalExpandedTasks, setModalExpandedTasks] = useState<Set<string>>(new Set());
   const [modalExpandedLevel3, setModalExpandedLevel3] = useState<Set<string>>(new Set());
   const [modalSearchTerm, setModalSearchTerm] = useState<string>('');
+  const [selectedCollaboratorIds, setSelectedCollaboratorIds] = useState<Set<string>>(new Set());
+  const [isCollabDropdownOpen, setIsCollabDropdownOpen] = useState<boolean>(false);
+  const [collabSearchFilter, setCollabSearchFilter] = useState<string>('');
+  const [selectedDepartmentFilter, setSelectedDepartmentFilter] = useState<string>('todos');
 
   // Discover periods on mount
   useEffect(() => {
@@ -595,6 +599,60 @@ export default function AnalisesView() {
     setModalExpandedLevel3(new Set());
   };
 
+  // Available departments for collaborator filter
+  const availableDepartments = useMemo(() => {
+    const deptSet = new Set<string>();
+    rawData.forEach(row => {
+      const dept = (row.depto_nome || row.departamento || '').trim();
+      if (dept) {
+        deptSet.add(dept);
+      }
+    });
+    return Array.from(deptSet).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [rawData]);
+
+  // Available collaborators for multiselect filter (chained with department filter)
+  const availableCollaborators = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; totalSeconds: number; depto: string }>();
+    rawData.forEach(row => {
+      const id = row.colaborador_id || row.colaborador_nome;
+      const name = row.colaborador_nome || 'Colaborador não identificado';
+      const dept = (row.depto_nome || row.departamento || 'Sem Departamento').trim();
+      if (id) {
+        if (!map.has(id)) {
+          map.set(id, { id, name, totalSeconds: 0, depto: dept });
+        }
+        map.get(id)!.totalSeconds += row.aponta_qtde_segundos || row.tempo_segundos || 0;
+      }
+    });
+
+    let list = Array.from(map.values());
+    if (selectedDepartmentFilter !== 'todos') {
+      list = list.filter(c => c.depto.toLowerCase() === selectedDepartmentFilter.toLowerCase());
+    }
+
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [rawData, selectedDepartmentFilter]);
+
+  const filteredRawData = useMemo(() => {
+    let result = rawData;
+    if (dimension === 'colaborador') {
+      if (selectedDepartmentFilter !== 'todos') {
+        result = result.filter(row => {
+          const dept = (row.depto_nome || row.departamento || '').trim();
+          return dept.toLowerCase() === selectedDepartmentFilter.toLowerCase();
+        });
+      }
+      if (selectedCollaboratorIds.size > 0) {
+        result = result.filter(row => {
+          const id = row.colaborador_id || row.colaborador_nome;
+          return id && selectedCollaboratorIds.has(id);
+        });
+      }
+    }
+    return result;
+  }, [rawData, dimension, selectedDepartmentFilter, selectedCollaboratorIds]);
+
   // Aggregate data according to chosen dimension
   const aggregatedData = useMemo(() => {
     const map = new Map<string, {
@@ -610,7 +668,7 @@ export default function AnalisesView() {
       entitiesSet: Set<string>;
     }>();
 
-    rawData.forEach(row => {
+    filteredRawData.forEach(row => {
       let key = 'N/A';
       let name = 'Não Informado';
       let secondaryName = undefined;
@@ -728,13 +786,13 @@ export default function AnalisesView() {
       }
       return sortAsc ? (Number(valA) - Number(valB)) : (Number(valB) - Number(valA));
     });
-  }, [rawData, dimension, searchTerm, sortField, sortAsc]);
+  }, [filteredRawData, dimension, searchTerm, sortField, sortAsc]);
 
   // Total metrics
-  const totalSecondsAll = useMemo(() => rawData.reduce((acc, curr) => acc + (curr.aponta_qtde_segundos || curr.tempo_segundos || 0), 0), [rawData]);
-  const totalEntriesCount = useMemo(() => rawData.length, [rawData]);
-  const uniqueCollaboratorsCount = useMemo(() => new Set(rawData.map(r => r.colaborador_nome || r.colaborador_id).filter(Boolean)).size, [rawData]);
-  const uniqueCompaniesCount = useMemo(() => new Set(rawData.map(r => r.empresa_id || r.empresa_nome).filter(Boolean)).size, [rawData]);
+  const totalSecondsAll = useMemo(() => filteredRawData.reduce((acc, curr) => acc + (curr.aponta_qtde_segundos || curr.tempo_segundos || 0), 0), [filteredRawData]);
+  const totalEntriesCount = useMemo(() => filteredRawData.length, [filteredRawData]);
+  const uniqueCollaboratorsCount = useMemo(() => new Set(filteredRawData.map(r => r.colaborador_nome || r.colaborador_id).filter(Boolean)).size, [filteredRawData]);
+  const uniqueCompaniesCount = useMemo(() => new Set(filteredRawData.map(r => r.empresa_id || r.empresa_nome).filter(Boolean)).size, [filteredRawData]);
 
   const handleSort = (field: string) => {
     let target = field;
@@ -933,6 +991,148 @@ export default function AnalisesView() {
             );
           })}
         </div>
+
+        {/* Department & Collaborator Chained Filters (Only active when dimension === 'colaborador') */}
+        {dimension === 'colaborador' && (
+          <div className="pt-3 border-t border-brand-border/40 flex items-center gap-4 flex-wrap relative">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-brand-text-muted uppercase tracking-wider">Departamento:</span>
+              <select
+                value={selectedDepartmentFilter}
+                onChange={(e) => {
+                  setSelectedDepartmentFilter(e.target.value);
+                  setSelectedCollaboratorIds(new Set()); // reset selected collaborators when department changes
+                }}
+                className="bg-brand-card border border-brand-border rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-brand-primary min-w-[190px]"
+              >
+                <option value="todos">Todos os Departamentos</option>
+                {availableDepartments.map(dept => (
+                  <option key={`dept_opt_${dept}`} value={dept}>{dept}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2 relative">
+              <span className="text-xs font-bold text-brand-text-muted uppercase tracking-wider">Colaboradores:</span>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsCollabDropdownOpen(!isCollabDropdownOpen)}
+                  className="px-3.5 py-1.5 bg-brand-card hover:bg-brand-card-bright text-xs text-white border border-brand-border rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-sm"
+                >
+                  <Users size={14} className="text-brand-primary" />
+                  <span>
+                    {selectedCollaboratorIds.size === 0
+                      ? `Todos (${availableCollaborators.length})`
+                      : `${selectedCollaboratorIds.size} de ${availableCollaborators.length} selecionados`}
+                  </span>
+                  <ChevronDown size={14} className="text-brand-text-muted" />
+                </button>
+
+                {isCollabDropdownOpen && (
+                  <div className="absolute left-0 mt-2 w-80 bg-brand-card border border-brand-border rounded-xl shadow-2xl z-50 p-3 space-y-3 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">Selecionar Colaboradores</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsCollabDropdownOpen(false)}
+                        className="text-brand-text-muted hover:text-white cursor-pointer"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={collabSearchFilter}
+                      onChange={(e) => setCollabSearchFilter(e.target.value)}
+                      placeholder="Buscar colaborador..."
+                      className="w-full bg-brand-card-light border border-brand-border rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-brand-text-muted/50 focus:outline-none focus:border-brand-primary"
+                    />
+
+                    <div className="flex items-center justify-between text-[11px] px-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allIds = new Set(availableCollaborators.map(c => c.id));
+                          setSelectedCollaboratorIds(allIds);
+                        }}
+                        className="text-brand-primary hover:underline font-semibold cursor-pointer"
+                      >
+                        Selecionar Todos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCollaboratorIds(new Set())}
+                        className="text-rose-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        Limpar Seleção
+                      </button>
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+                      {availableCollaborators
+                        .filter(c => c.name.toLowerCase().includes(collabSearchFilter.toLowerCase()))
+                        .map(collab => {
+                          const isChecked = selectedCollaboratorIds.has(collab.id);
+                          return (
+                            <label
+                              key={`collab_opt_${collab.id}`}
+                              className="flex items-center justify-between p-2 rounded-lg hover:bg-brand-card-bright/40 cursor-pointer text-xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const next = new Set(selectedCollaboratorIds);
+                                    if (e.target.checked) {
+                                      next.add(collab.id);
+                                    } else {
+                                      next.delete(collab.id);
+                                    }
+                                    setSelectedCollaboratorIds(next);
+                                  }}
+                                  className="rounded border-brand-border text-brand-primary focus:ring-0 bg-brand-card cursor-pointer"
+                                />
+                                <span className="truncate text-white font-medium" title={collab.name}>{collab.name}</span>
+                              </div>
+                              <span className="text-[10px] text-brand-text-muted font-mono shrink-0">
+                                {(collab.totalSeconds / 3600).toFixed(1)}h
+                              </span>
+                            </label>
+                          );
+                        })}
+                    </div>
+
+                    <div className="pt-2 border-t border-brand-border/40 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setIsCollabDropdownOpen(false)}
+                        className="px-3 py-1 bg-brand-primary text-white text-xs font-semibold rounded-lg hover:bg-brand-primary/90 cursor-pointer"
+                      >
+                        Aplicar Filtro
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {(selectedCollaboratorIds.size > 0 || selectedDepartmentFilter !== 'todos') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedDepartmentFilter('todos');
+                  setSelectedCollaboratorIds(new Set());
+                }}
+                className="text-xs text-brand-text-muted hover:text-white underline cursor-pointer"
+              >
+                Limpar filtros
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Summary KPI Cards (Effort Only) */}

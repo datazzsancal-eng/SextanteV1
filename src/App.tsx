@@ -145,12 +145,12 @@ export default function App() {
     ? currentUser.role.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes("colaborador")
     : false;
 
-  // Auto-switch to leader dash if user is Lider
+  // Auto-switch to leader dash if user is Lider on login/user switch
   useEffect(() => {
-    if (isLider && currentTab !== 'dashlideranca') {
+    if (isLider) {
       setCurrentTab('dashlideranca');
     }
-  }, [isLider, currentTab]);
+  }, [isLider]);
 
   // Prevent collaborator from accessing analises
   useEffect(() => {

@@ -285,7 +285,15 @@ export default function AnalisesView() {
             const matchPeriod = validPeriodSet.has(`${row.aponta_ano}-${row.aponta_mes}`);
             const matchDeptCalc = row.depto_calcula_sn === true || row.depto_calcula_sn === 'S' || row.depto_calcula_sn === 's' || row.depto_calcula_sn === 1 || row.depto_calcula_sn === '1' || row.depto_calcula_sn === undefined;
             return matchPeriod && matchDeptCalc;
-          });
+          }).map((row: any) => ({
+            ...row,
+            grupo_nome: row.grupo_nome || 'SEM GRUPO',
+            empresa_id: row.empresa_id || row.cliente_id,
+            empresa_nome: row.empresa_nome || row.cliente_nome || row.empresa || row.cliente || 'SEM EMPRESA',
+            depto_nome: row.depto_nome || 'SEM DEPARTAMENTO',
+            tarefa_nome: row.tarefa_nome || row.tarefa || 'SEM IDENTIFICAÇÃO',
+            colaborador_nome: row.colaborador_nome || 'SEM COLABORADOR'
+          }));
           allRecords = [...allRecords, ...validData];
           if (data.length < pageSize || allRecords.length > 30000) {
             hasMore = false;
@@ -334,13 +342,14 @@ export default function AnalisesView() {
 
         if (fallbackRows.length > 0) {
           allRecords = fallbackRows.map(r => ({
-            grupo_nome: r.grupo_nome,
+            ...r,
+            grupo_nome: r.grupo_nome || 'SEM GRUPO',
             empresa_id: r.empresa_id || r.cliente_id,
-            empresa_nome: r.empresa_nome || r.cliente_nome || (target.type === 'empresa' ? target.name : 'Empresa Geral'),
+            empresa_nome: r.empresa_nome || r.cliente_nome || r.empresa || r.cliente || (target.type === 'empresa' ? target.name : 'SEM EMPRESA'),
             depto_id: r.depto_id || (target.type === 'departamento' ? target.depto_id : undefined),
-            depto_nome: r.depto_nome || (target.type === 'departamento' ? target.name : 'Sem Departamento'),
-            tarefa_nome: r.tarefa_nome || r.tarefa || 'Atividade Operacional Geral',
-            colaborador_nome: r.colaborador_nome || 'Colaboradores',
+            depto_nome: r.depto_nome || (target.type === 'departamento' ? target.name : 'SEM DEPARTAMENTO'),
+            tarefa_nome: r.tarefa_nome || r.tarefa || 'SEM IDENTIFICAÇÃO',
+            colaborador_nome: r.colaborador_nome || target.name || 'SEM COLABORADOR',
             aponta_qtde_segundos: Number(r.aponta_qtde_segundos) || Number(r.tempo_segundos) || 0,
             aponta_qtde_lancamentos: Number(r.aponta_qtde_lancamentos) || Number(r.qtde_lancamentos) || 1,
             aponta_ano: r.aponta_ano,
@@ -1742,63 +1751,105 @@ export default function AnalisesView() {
                                             ? (colab.tempo_segundos / task.tempo_segundos) * 100 
                                             : 0;
 
-                                          return (
-                                            <tr key={`colab_${taskKey}_${colabName}`} className="bg-black/20 hover:bg-brand-card-bright/10 transition-colors border-t border-brand-border/10">
-                                              <td className="py-2 px-4 pl-16">
-                                                {isSpecial4LevelView && Object.keys(colab.empresas).length > 0 ? (
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => toggleLevel3Expand(primaryName, taskName, colabName)}
-                                                    className="flex items-center gap-2 text-left cursor-pointer focus:outline-none w-full"
-                                                  >
-                                                    <span className={`text-amber-400 shrink-0 transition-transform duration-200 ${modalExpandedLevel3.has(`${taskKey}:::${colabName}`) ? 'rotate-90' : 'rotate-0'}`}>
-                                                      <ChevronRight size={12} />
-                                                    </span>
-                                                    <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
-                                                      <Layers size={12} />
-                                                    </div>
-                                                    <span className="text-white/90 font-semibold text-xs">
-                                                      {colabName}
-                                                    </span>
-                                                    <span className="text-[9px] text-brand-text-muted font-mono font-normal ml-1">
-                                                      ({Object.keys(colab.empresas).length} {Object.keys(colab.empresas).length === 1 ? 'empresa' : 'empresas'})
-                                                    </span>
-                                                  </button>
-                                                ) : (
-                                                  <div className="flex items-center gap-2">
-                                                    <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
-                                                      <User size={12} />
-                                                    </div>
-                                                    <span className="text-white/80 font-medium text-xs">
-                                                      {colabName}
-                                                    </span>
-                                                  </div>
-                                                )}
-                                              </td>
-                                              <td className="py-2 px-4 text-center font-mono text-xs text-sky-400/80">
-                                                {colab.lancamentos.toLocaleString('pt-BR')}
-                                              </td>
-                                              <td className="py-2 px-4 text-right font-mono font-medium text-white/80 text-xs">
-                                                {formatSecondsToHms(colab.tempo_segundos)}
-                                                <span className="text-[9px] text-brand-text-muted font-normal block">
-                                                  {(colab.tempo_segundos / 3600).toFixed(1)}h
-                                                </span>
-                                              </td>
-                                              <td className="py-2 px-4 text-center font-mono">
-                                                <span className="text-amber-400 text-xs font-mono bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded inline-block">
-                                                  {formatSecondsToHms(colab.media_segundos)}
-                                                </span>
-                                              </td>
-                                              <td className="py-2 px-4 text-right font-mono">
-                                                <div className="flex items-center justify-end gap-2">
-                                                  <span className="text-amber-400 text-xs font-mono">{colabShare.toFixed(1)}%</span>
-                                                  <div className="w-16 bg-brand-card-light rounded-full h-1 overflow-hidden border border-brand-border/40 hidden sm:block">
-                                                    <div className="bg-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, colabShare))}%` }} />
-                                                  </div>
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          );
+                                           return (
+                                             <React.Fragment key={`colab_frag_${taskKey}_${colabName}`}>
+                                               <tr key={`colab_${taskKey}_${colabName}`} className="bg-black/20 hover:bg-brand-card-bright/10 transition-colors border-t border-brand-border/10">
+                                                 <td className="py-2 px-4 pl-16">
+                                                   {isSpecial4LevelView && Object.keys(colab.empresas).length > 0 ? (
+                                                     <div className="flex items-center gap-2">
+                                                       <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
+                                                         <Layers size={12} />
+                                                       </div>
+                                                       <span className="text-white/90 font-semibold text-xs">
+                                                         {colabName}
+                                                       </span>
+                                                       <span className="text-[9px] text-brand-text-muted font-mono font-normal ml-1">
+                                                         ({Object.keys(colab.empresas).length} {Object.keys(colab.empresas).length === 1 ? 'empresa' : 'empresas'})
+                                                       </span>
+                                                     </div>
+                                                   ) : (
+                                                     <div className="flex items-center gap-2">
+                                                       <div className="p-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15 shrink-0">
+                                                         <User size={12} />
+                                                       </div>
+                                                       <span className="text-white/80 font-medium text-xs">
+                                                         {colabName}
+                                                       </span>
+                                                     </div>
+                                                   )}
+                                                 </td>
+                                                 <td className="py-2 px-4 text-center font-mono text-xs text-sky-400/80">
+                                                   {colab.lancamentos.toLocaleString('pt-BR')}
+                                                 </td>
+                                                 <td className="py-2 px-4 text-right font-mono font-medium text-white/80 text-xs">
+                                                   {formatSecondsToHms(colab.tempo_segundos)}
+                                                   <span className="text-[9px] text-brand-text-muted font-normal block">
+                                                     {(colab.tempo_segundos / 3600).toFixed(1)}h
+                                                   </span>
+                                                 </td>
+                                                 <td className="py-2 px-4 text-center font-mono">
+                                                   <span className="text-amber-400 text-xs font-mono bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded inline-block">
+                                                     {formatSecondsToHms(colab.media_segundos)}
+                                                   </span>
+                                                 </td>
+                                                 <td className="py-2 px-4 text-right font-mono">
+                                                   <div className="flex items-center justify-end gap-2">
+                                                     <span className="text-amber-400 text-xs font-mono">{colabShare.toFixed(1)}%</span>
+                                                     <div className="w-16 bg-brand-card-light rounded-full h-1 overflow-hidden border border-brand-border/40 hidden sm:block">
+                                                       <div className="bg-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, colabShare))}%` }} />
+                                                     </div>
+                                                   </div>
+                                                 </td>
+                                               </tr>
+
+                                               {/* Level 4: Empresas under Grupo */}
+                                               {isSpecial4LevelView && Object.keys(colab.empresas).length > 0 && Object.keys(colab.empresas)
+                                                 .sort((a, b) => colab.empresas[b].tempo_segundos - colab.empresas[a].tempo_segundos)
+                                                 .map(empName => {
+                                                   const emp = colab.empresas[empName];
+                                                   const empShare = colab.tempo_segundos > 0 
+                                                     ? (emp.tempo_segundos / colab.tempo_segundos) * 100 
+                                                     : 0;
+
+                                                   return (
+                                                     <tr key={`emp_${taskKey}_${colabName}_${empName}`} className="bg-black/40 hover:bg-brand-card-bright/10 transition-colors border-t border-brand-border/10">
+                                                       <td className="py-2 px-4 pl-24">
+                                                         <div className="flex items-center gap-2">
+                                                           <div className="p-1 rounded bg-sky-500/10 text-sky-400 border border-sky-500/15 shrink-0">
+                                                             <Building2 size={12} />
+                                                           </div>
+                                                           <span className="text-white/80 font-medium text-xs">
+                                                             {empName}
+                                                           </span>
+                                                         </div>
+                                                       </td>
+                                                       <td className="py-2 px-4 text-center font-mono text-xs text-sky-400/70">
+                                                         {emp.lancamentos.toLocaleString('pt-BR')}
+                                                       </td>
+                                                       <td className="py-2 px-4 text-right font-mono font-medium text-white/70 text-xs">
+                                                         {formatSecondsToHms(emp.tempo_segundos)}
+                                                         <span className="text-[9px] text-brand-text-muted font-normal block">
+                                                           {(emp.tempo_segundos / 3600).toFixed(1)}h
+                                                         </span>
+                                                       </td>
+                                                       <td className="py-2 px-4 text-center font-mono">
+                                                         <span className="text-sky-400 text-xs font-mono bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded inline-block">
+                                                           {formatSecondsToHms(emp.media_segundos)}
+                                                         </span>
+                                                       </td>
+                                                       <td className="py-2 px-4 text-right font-mono">
+                                                         <div className="flex items-center justify-end gap-2">
+                                                           <span className="text-sky-400 text-xs font-mono">{empShare.toFixed(1)}%</span>
+                                                           <div className="w-16 bg-brand-card-light rounded-full h-1 overflow-hidden border border-brand-border/40 hidden sm:block">
+                                                             <div className="bg-sky-400 h-full rounded-full" style={{ width: `${Math.min(100, Math.max(3, empShare))}%` }} />
+                                                           </div>
+                                                         </div>
+                                                       </td>
+                                                     </tr>
+                                                   );
+                                                 })}
+                                             </React.Fragment>
+                                           );
                                         })}
                                     </React.Fragment>
                                   );

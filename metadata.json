@@ -3,5 +3,5 @@
   "description": "Sextante is an executive financial controller dashboard for managing contracts, transaction data loads, status parameters, corporate access control, and global configurations.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
-  "engine_version": "Versão do Motor: SEXTANTE_CORE_v1.0.A"
+  "engine_version": "Versão do Motor: SEXTANTE_CORE_v2.0.G"
 }

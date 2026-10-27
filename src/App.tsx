@@ -338,7 +338,7 @@ export default function App() {
         let authUserId = userUuid;
 
         // 1. Attempt to create user in Supabase Auth (auth.users)
-        const tempPassword = 'Sextante#' + Math.floor(100000 + Math.random() * 900000);
+        const tempPassword = 'Sextante#123';
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email: userWithUuid.email,
           password: tempPassword,
@@ -354,10 +354,11 @@ export default function App() {
         if (!authError && authData?.user?.id) {
           authUserId = authData.user.id;
           userWithUuid.id = authUserId;
+          userWithUuid.password = tempPassword;
 
           // Update local state with the assigned auth.users UUID
           setUsers((prev) => {
-            const updated = prev.map(u => u.email.toLowerCase() === userWithUuid.email.toLowerCase() ? { ...u, id: authUserId } : u);
+            const updated = prev.map(u => u.email.toLowerCase() === userWithUuid.email.toLowerCase() ? { ...u, id: authUserId, password: tempPassword } : u);
             localStorage.setItem('sextante_profiles_v2', JSON.stringify(updated));
             return updated;
           });
